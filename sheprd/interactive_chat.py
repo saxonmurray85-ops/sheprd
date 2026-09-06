@@ -4,6 +4,7 @@ Provides a high-contrast digital green terminal interface, real-time token strea
 Herdr pane status reporting, and multi-agent invocation.
 """
 
+import asyncio
 import json
 import os
 import readline
@@ -13,9 +14,12 @@ import urllib.error
 import urllib.request
 from typing import Any, Dict, List, Optional
 
+import aiohttp
+
 from .database import AgentRecord, Database
 from .herdr_integration import HerdrIntegration
 from .server_manager import ServerManager
+from .tool_hub import ToolHub
 
 # Digital Green ANSI Palette
 C_RESET = "\033[0m"
@@ -45,6 +49,7 @@ class InteractiveChatSession:
         self.server_mgr = ServerManager(self.db)
         self.pane_id = os.environ.get("HERDR_PANE_ID")
         self.agent = self.db.get_agent_by_name(agent_name)
+        self.tool_hub = ToolHub(self.db)
         self.history: List[Dict[str, str]] = []
 
     def ensure_server_running(self) -> bool:
@@ -75,35 +80,38 @@ class InteractiveChatSession:
             f"Instructions:\n"
             f"- Speak consistently in your specified identity and personality.\n"
             f"- Stay dedicated to your assigned job.\n"
+            f"- Use your available tools whenever real-time data, calculations, or external facts are needed.\n"
             f"- Be clear, insightful, and direct."
         )
 
-    def stream_completion(self, user_text: str) -> str:
-        if not self.agent:
-            return ""
-
-        url = f"http://127.0.0.1:{self.agent.port}/v1/chat/completions"
-
+    async def _async_chat(self, user_text: str) -> str:
         messages = [{"role": "system", "content": self.build_system_prompt()}]
         messages.extend(self.history)
         messages.append({"role": "user", "content": user_text})
 
-        payload = {
-            "model": self.agent.name,
-            "messages": messages,
-            "stream": True,
-            "temperature": 0.7,
-            "max_tokens": 2048,
-        }
+        async def _on_event(event_type: str, data: Dict[str, Any]) -> None:
+            if event_type == "tool_call":
+                fn = data.get("name", "")
+                args_str = ", ".join(f"{k}={v!r}" for k, v in data.get("arguments", {}).items())
+                print(f"\n  {C_CYAN}⚡ [TOOL CALL]{C_RESET} {C_BOLD}{fn}{C_RESET}({args_str})")
+            elif event_type == "tool_result":
+                res = str(data.get("result", ""))
+                first_line = res.strip().split("\n")[0][:100]
+                print(f"  {C_DIM}✓ [TOOL RESULT] {first_line}...{C_RESET}")
 
-        data_bytes = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(
-            url,
-            data=data_bytes,
-            headers={"Content-Type": "application/json", "User-Agent": "Sheprd-Terminal/1.0"},
-        )
+        async with aiohttp.ClientSession() as session:
+            ans, _ = await self.tool_hub.chat_with_tools_loop(
+                agent=self.agent,
+                messages=messages,
+                session=session,
+                on_event=_on_event,
+                max_iterations=4,
+            )
+            return ans
 
-        full_reply = []
+    def stream_completion(self, user_text: str) -> str:
+        if not self.agent:
+            return ""
 
         # Report Herdr working state
         if self.pane_id:
@@ -111,45 +119,23 @@ class InteractiveChatSession:
                 self.pane_id, self.agent.name, self.agent.identity, "working"
             )
 
-        print(f"\n{C_BRIGHT_GREEN}{C_BOLD}{self.agent.name} ›{C_RESET} ", end="", flush=True)
-
         try:
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                for line_bytes in resp:
-                    line = line_bytes.decode("utf-8", errors="replace").strip()
-                    if not line:
-                        continue
-                    if line.startswith("data: "):
-                        data_str = line[6:].strip()
-                        if data_str == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(data_str)
-                            delta = chunk.get("choices", [{}])[0].get("delta", {})
-                            content = delta.get("content", "")
-                            if content:
-                                print(f"{C_GREEN}{content}{C_RESET}", end="", flush=True)
-                                full_reply.append(content)
-                        except json.JSONDecodeError:
-                            continue
-            print()  # Newline after stream finishes
+            full_reply_text = asyncio.run(self._async_chat(user_text))
+            print(f"\n{C_BRIGHT_GREEN}{C_BOLD}{self.agent.name} ›{C_RESET} {C_GREEN}{full_reply_text}{C_RESET}\n")
+            if full_reply_text:
+                self.history.append({"role": "user", "content": user_text})
+                self.history.append({"role": "assistant", "content": full_reply_text})
+                self.db.log_chat(self.agent.name, "user", user_text)
+                self.db.log_chat(self.agent.name, "assistant", full_reply_text)
+            return full_reply_text
         except Exception as e:
-            print(f"\n{C_RED}[Connection Error]{C_RESET} {e}")
+            print(f"\n{C_RED}[Error]{C_RESET} {e}")
+            return ""
         finally:
-            # Report Herdr idle state
             if self.pane_id:
                 HerdrIntegration.report_pane_status(
                     self.pane_id, self.agent.name, self.agent.identity, "idle"
                 )
-
-        reply_text = "".join(full_reply)
-        if reply_text:
-            self.history.append({"role": "user", "content": user_text})
-            self.history.append({"role": "assistant", "content": reply_text})
-            self.db.log_chat(self.agent.name, "user", user_text)
-            self.db.log_chat(self.agent.name, "assistant", reply_text)
-
-        return reply_text
 
     def print_banner(self):
         agent = self.agent

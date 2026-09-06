@@ -63,6 +63,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupCreateForm();
   setupChat();
   setupPresets();
+  setupMCPModal();
   loadInitialData();
   setupSSE();
 });
@@ -104,6 +105,10 @@ function setupTabs() {
       if (targetId === "groups-tab") {
         renderGroups();
       }
+
+      if (targetId === "tools-tab") {
+        loadToolsAndMCPServers();
+      }
     });
   });
 }
@@ -117,6 +122,7 @@ function switchTab(tabId) {
 async function loadInitialData() {
   await fetchSystemStatus();
   await fetchAgents();
+  await loadToolsAndMCPServers();
 }
 
 async function fetchSystemStatus() {
@@ -221,6 +227,7 @@ function renderAgents(agents) {
             callable: <strong>${agent.callable_by_agents ? 'YES' : 'NO'}</strong>
           </span>
           ${agent.telegram_enabled ? `<span class="meta-pill highlight">✈ TG: <strong>ACTIVE</strong></span>` : ''}
+          ${agent.tools && agent.tools.length > 0 ? `<span class="meta-pill">tools: <strong>${agent.tools.length}</strong></span>` : ''}
           ${groupsHtml}
         </div>
 
@@ -359,6 +366,9 @@ function setupCreateForm() {
     const groupsRaw = document.getElementById("form-groups").value.trim();
     const groups = groupsRaw ? groupsRaw.split(",").map(g => g.trim()).filter(Boolean) : ["default"];
 
+    const toolCheckboxes = document.querySelectorAll('input[name="form_tool"]:checked');
+    const tools = Array.from(toolCheckboxes).map(cb => cb.value);
+
     const payload = {
       name,
       identity,
@@ -374,6 +384,7 @@ function setupCreateForm() {
       telegram_bot_token: tgToken,
       callable_by_agents: callableBy,
       groups,
+      tools,
     };
 
     try {
@@ -484,7 +495,7 @@ function setupChat() {
 
       const data = await res.json();
       if (res.ok && data.ok) {
-        appendChatMessage(state.activeChatAgent, "assistant", data.response);
+        appendChatMessage(state.activeChatAgent, "assistant", data.response, data.tool_calls);
       } else {
         appendChatMessage(state.activeChatAgent, "system", `Error: ${data.error}`);
       }
@@ -544,19 +555,27 @@ function renderChatMessages(name) {
   if (!container) return;
   const history = state.chatHistories[name] || [];
 
-  container.innerHTML = history.map(msg => `
-    <div class="chat-bubble ${msg.role}">
-      <div class="sender-label">${msg.role === 'user' ? 'YOU' : name.toUpperCase()}</div>
-      <div>${escapeHtml(msg.content)}</div>
-    </div>
-  `).join("");
+  container.innerHTML = history.map(msg => {
+    let toolBadgeHtml = "";
+    if (msg.tool_calls && msg.tool_calls.length > 0) {
+      const toolNames = msg.tool_calls.map(tc => escapeHtml(tc.name || "tool")).join(", ");
+      toolBadgeHtml = `<div class="tool-call-badge">⚡ Executed Tools: <strong>${toolNames}</strong></div>`;
+    }
+    return `
+      <div class="chat-bubble ${msg.role}">
+        <div class="sender-label">${msg.role === 'user' ? 'YOU' : name.toUpperCase()}</div>
+        ${toolBadgeHtml}
+        <div>${escapeHtml(msg.content)}</div>
+      </div>
+    `;
+  }).join("");
 
   container.scrollTop = container.scrollHeight;
 }
 
-function appendChatMessage(agentName, role, content) {
+function appendChatMessage(agentName, role, content, toolCalls = []) {
   if (!state.chatHistories[agentName]) state.chatHistories[agentName] = [];
-  state.chatHistories[agentName].push({ role, content });
+  state.chatHistories[agentName].push({ role, content, tool_calls: toolCalls });
   if (state.activeChatAgent === agentName) {
     renderChatMessages(agentName);
   }
@@ -682,3 +701,222 @@ function escapeHtml(text) {
   const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
   return String(text).replace(/[&<>"']/g, m => map[m]);
 }
+
+// ---------------------------------------------------------------------------
+// Tools & MCP Skills Hub Controller
+// ---------------------------------------------------------------------------
+
+const MCP_PRESETS = {
+  custom: { name: "", command: "", args: "", desc: "" },
+  duckduckgo: {
+    name: "duckduckgo",
+    command: "npx",
+    args: "-y @modelcontextprotocol/server-duckduckgo",
+    desc: "Real-time web search capabilities via DuckDuckGo",
+  },
+  brave: {
+    name: "brave-search",
+    command: "npx",
+    args: "-y @modelcontextprotocol/server-brave-search",
+    desc: "Brave Web Search API for live web queries",
+  },
+  sqlite: {
+    name: "sqlite",
+    command: "uvx",
+    args: "mcp-server-sqlite --db-path ./sheprd.db",
+    desc: "Direct database queries and schema inspection on SQLite",
+  },
+  filesystem: {
+    name: "filesystem",
+    command: "npx",
+    args: "-y @modelcontextprotocol/server-filesystem /home/sachsen",
+    desc: "Secure local filesystem access for reading local files",
+  },
+  memory: {
+    name: "memory",
+    command: "npx",
+    args: "-y @modelcontextprotocol/server-memory",
+    desc: "Persistent knowledge graph and agent memory graph",
+  },
+};
+
+function applyMCPPreset(key) {
+  const p = MCP_PRESETS[key];
+  if (!p) return;
+  document.getElementById("mcp-name").value = p.name;
+  document.getElementById("mcp-command").value = p.command;
+  document.getElementById("mcp-args").value = p.args;
+  document.getElementById("mcp-desc").value = p.desc;
+}
+
+function openAddMCPModal() {
+  const modal = document.getElementById("add-mcp-modal");
+  if (modal) modal.style.display = "flex";
+}
+
+function closeAddMCPModal() {
+  const modal = document.getElementById("add-mcp-modal");
+  if (modal) modal.style.display = "none";
+}
+
+function setupMCPModal() {
+  const form = document.getElementById("add-mcp-form");
+  if (!form) return;
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = document.getElementById("mcp-name").value.trim();
+    const command = document.getElementById("mcp-command").value.trim();
+    const rawArgs = document.getElementById("mcp-args").value.trim();
+    const description = document.getElementById("mcp-desc").value.trim();
+
+    if (!name || !command) {
+      showToast("Server identifier and command binary are required.", "normal");
+      return;
+    }
+
+    const args = rawArgs ? rawArgs.split(/\s+/).filter(Boolean) : [];
+
+    try {
+      const res = await fetch("/api/mcp/servers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, command, args, description, enabled: true }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        showToast(data.error || "Failed to add MCP server.", "normal");
+        return;
+      }
+
+      showToast(`MCP server '${name}' connected successfully!`);
+      form.reset();
+      closeAddMCPModal();
+      await loadToolsAndMCPServers();
+    } catch (err) {
+      showToast(`Error connecting MCP server: ${err}`, "normal");
+    }
+  });
+}
+
+async function loadToolsAndMCPServers() {
+  try {
+    const [toolsRes, serversRes] = await Promise.all([
+      fetch("/api/tools"),
+      fetch("/api/mcp/servers"),
+    ]);
+
+    if (toolsRes.ok) {
+      const data = await toolsRes.json();
+      renderCoreTools(data.tools || []);
+    }
+
+    if (serversRes.ok) {
+      const data = await serversRes.json();
+      renderMCPServers(data.servers || []);
+    }
+  } catch (err) {
+    console.error("Error loading tools / MCP servers:", err);
+  }
+}
+
+function renderCoreTools(tools) {
+  const container = document.getElementById("core-tools-list");
+  if (!container) return;
+
+  const coreTools = tools.filter(t => t.type === "core");
+  if (coreTools.length === 0) {
+    container.innerHTML = `<div style="color: var(--text-dim); padding: 12px;">No core tools registered.</div>`;
+    return;
+  }
+
+  container.innerHTML = coreTools.map(t => `
+    <div class="tool-item-card">
+      <div class="tool-header-line">
+        <div class="tool-name"><code>${escapeHtml(t.name)}</code></div>
+        <span class="tool-badge core">Built-in</span>
+      </div>
+      <div class="tool-desc">${escapeHtml(t.description)}</div>
+    </div>
+  `).join("");
+}
+
+function renderMCPServers(servers) {
+  const container = document.getElementById("mcp-servers-list");
+  const countBadge = document.getElementById("mcp-count-badge");
+  if (countBadge) {
+    countBadge.textContent = `${servers.length} Server${servers.length === 1 ? '' : 's'}`;
+  }
+  if (!container) return;
+
+  if (servers.length === 0) {
+    container.innerHTML = `
+      <div style="color: var(--text-dim); padding: 24px; text-align: center; border: 1px dashed var(--border-green); border-radius: 4px;">
+        <div style="margin-bottom: 8px; font-weight: 700; color: var(--accent-green);">No external MCP servers connected</div>
+        <div style="font-size: 12px; margin-bottom: 14px;">Hook into DuckDuckGo, Brave Search, SQLite, Filesystem, or any stdio MCP server.</div>
+        <button class="btn btn-primary" onclick="openAddMCPModal()">+ Connect First MCP Server</button>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = servers.map(s => {
+    const cmdStr = `${s.command} ${(s.args || []).join(" ")}`.trim();
+    return `
+      <div class="tool-item-card" id="mcp-card-${escapeHtml(s.name)}">
+        <div class="tool-header-line">
+          <div>
+            <div class="tool-name" style="color: var(--accent-amber);">${escapeHtml(s.name)}</div>
+            <div style="font-size: 11px; color: var(--text-dim); margin-top: 2px;"><code>${escapeHtml(cmdStr)}</code></div>
+          </div>
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <span class="tool-badge mcp">${s.enabled ? 'Enabled' : 'Disabled'}</span>
+            <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px;" onclick="testMCPServer('${escapeHtml(s.name)}')">⚡ Test</button>
+            <button class="btn btn-danger" style="padding: 2px 8px; font-size: 11px;" onclick="deleteMCPServer('${escapeHtml(s.name)}')">🗑</button>
+          </div>
+        </div>
+        <div class="tool-desc">${escapeHtml(s.description || "No description provided.")}</div>
+      </div>
+    `;
+  }).join("");
+}
+
+async function deleteMCPServer(name) {
+  if (!confirm(`Are you sure you want to disconnect MCP server '${name}'?`)) return;
+  try {
+    const res = await fetch(`/api/mcp/servers/${encodeURIComponent(name)}`, { method: "DELETE" });
+    const data = await res.json();
+    if (res.ok && data.ok) {
+      showToast(`MCP server '${name}' disconnected.`);
+      await loadToolsAndMCPServers();
+    } else {
+      showToast(data.error || "Failed to delete server.", "normal");
+    }
+  } catch (err) {
+    showToast(`Error deleting MCP server: ${err}`, "normal");
+  }
+}
+
+async function testMCPServer(name) {
+  showToast(`Testing MCP server '${name}'...`);
+  try {
+    const res = await fetch(`/api/mcp/servers/${encodeURIComponent(name)}/test`, { method: "POST" });
+    const data = await res.json();
+    if (res.ok && data.ok) {
+      showToast(`MCP '${name}' OK! Discovered ${data.tools_count} tools: ${data.tools.join(', ')}`);
+      await loadToolsAndMCPServers();
+    } else {
+      showToast(`Test failed: ${data.error || 'Server did not respond'}`, "normal");
+    }
+  } catch (err) {
+    showToast(`Error testing MCP server: ${err}`, "normal");
+  }
+}
+
+// Global exports for inline HTML event handlers
+window.applyMCPPreset = applyMCPPreset;
+window.openAddMCPModal = openAddMCPModal;
+window.closeAddMCPModal = closeAddMCPModal;
+window.deleteMCPServer = deleteMCPServer;
+window.testMCPServer = testMCPServer;
+

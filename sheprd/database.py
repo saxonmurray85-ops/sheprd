@@ -8,7 +8,7 @@ import json
 import os
 import sqlite3
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -17,6 +17,7 @@ from .security import SecurityError, mask_token, validate_agent_name, validate_g
 
 
 DEFAULT_DB_PATH = Path.home() / ".local/share/sheprd/sheprd.db"
+DEFAULT_CORE_TOOLS = ["get_weather", "wikipedia_search", "fetch_url", "calculate", "get_current_time"]
 
 
 @dataclass
@@ -41,6 +42,7 @@ class AgentRecord:
     pid: Optional[int]
     created_at: str
     updated_at: str
+    tools: List[str] = field(default_factory=lambda: list(DEFAULT_CORE_TOOLS))
 
     def to_dict(self, mask_secrets: bool = True) -> Dict[str, Any]:
         d = asdict(self)
@@ -125,8 +127,29 @@ class Database:
             );
             """)
 
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS mcp_servers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                command TEXT NOT NULL,
+                args TEXT NOT NULL DEFAULT '[]',
+                env TEXT NOT NULL DEFAULT '{}',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                description TEXT DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+            );
+            """)
+
             conn.execute("CREATE INDEX IF NOT EXISTS idx_agents_name ON agents(name);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_logs_agent ON chat_logs(agent_name);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_mcp_servers_name ON mcp_servers(name);")
+
+            # Schema migration: check if 'tools' column exists in agents
+            agent_cols = [c["name"] for c in conn.execute("PRAGMA table_info(agents)").fetchall()]
+            if "tools" not in agent_cols:
+                default_tools_json = json.dumps(DEFAULT_CORE_TOOLS)
+                conn.execute(f"ALTER TABLE agents ADD COLUMN tools TEXT NOT NULL DEFAULT '{default_tools_json}';")
 
         self._enforce_permissions()
 
@@ -147,11 +170,14 @@ class Database:
         telegram_bot_token: Optional[str] = None,
         callable_by_agents: bool = True,
         groups: Optional[List[str]] = None,
+        tools: Optional[List[str]] = None,
     ) -> AgentRecord:
         clean_name = validate_agent_name(name)
         clean_port = validate_port(port)
         clean_groups = validate_groups(groups)
         group_str = ",".join(clean_groups)
+        tools_list = tools if tools is not None else list(DEFAULT_CORE_TOOLS)
+        tools_json = json.dumps(tools_list)
 
         with self._conn() as conn:
             now = datetime.now(timezone.utc).isoformat()
@@ -161,8 +187,8 @@ class Database:
                     name, identity, personality, job, model_path, model_architecture,
                     port, context_size, n_gpu_layers, threads, template_kind,
                     telegram_enabled, telegram_bot_token, callable_by_agents,
-                    groups, status, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'stopped', ?, ?)
+                    groups, tools, status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'stopped', ?, ?)
                 """,
                 (
                     clean_name,
@@ -180,6 +206,7 @@ class Database:
                     (telegram_bot_token or "").strip(),
                     1 if callable_by_agents else 0,
                     group_str,
+                    tools_json,
                     now,
                     now,
                 ),
@@ -222,6 +249,7 @@ class Database:
         telegram_bot_token: Optional[str] = None,
         callable_by_agents: Optional[bool] = None,
         groups: Optional[List[str]] = None,
+        tools: Optional[List[str]] = None,
     ) -> Optional[AgentRecord]:
         agent = self.get_agent_by_name(name)
         if not agent:
@@ -234,6 +262,7 @@ class Database:
         new_tg_token = telegram_bot_token if telegram_bot_token is not None else agent.telegram_bot_token
         new_callable = callable_by_agents if callable_by_agents is not None else agent.callable_by_agents
         new_groups = ",".join(validate_groups(groups)) if groups is not None else ",".join(agent.groups)
+        new_tools_json = json.dumps(tools) if tools is not None else json.dumps(agent.tools)
 
         now = datetime.now(timezone.utc).isoformat()
         with self._conn() as conn:
@@ -242,7 +271,7 @@ class Database:
                 UPDATE agents SET
                     identity = ?, personality = ?, job = ?,
                     telegram_enabled = ?, telegram_bot_token = ?,
-                    callable_by_agents = ?, groups = ?, updated_at = ?
+                    callable_by_agents = ?, groups = ?, tools = ?, updated_at = ?
                 WHERE name = ?
                 """,
                 (
@@ -253,6 +282,7 @@ class Database:
                     new_tg_token,
                     1 if new_callable else 0,
                     new_groups,
+                    new_tools_json,
                     now,
                     name,
                 ),
@@ -285,9 +315,101 @@ class Database:
             ).fetchall()
             return [dict(r) for r in reversed(rows)]
 
+    # ---------------------------------------------------------------------------
+    # MCP Server Persistence
+    # ---------------------------------------------------------------------------
+
+    def list_mcp_servers(self) -> List[Dict[str, Any]]:
+        with self._conn() as conn:
+            rows = conn.execute("SELECT * FROM mcp_servers ORDER BY id ASC").fetchall()
+            return [self._row_to_mcp(r) for r in rows]
+
+    def get_mcp_server(self, name: str) -> Optional[Dict[str, Any]]:
+        with self._conn() as conn:
+            row = conn.execute("SELECT * FROM mcp_servers WHERE name = ?", (name,)).fetchone()
+            return self._row_to_mcp(row) if row else None
+
+    def create_mcp_server(
+        self,
+        name: str,
+        command: str,
+        args: Optional[List[str]] = None,
+        env: Optional[Dict[str, str]] = None,
+        enabled: bool = True,
+        description: str = "",
+    ) -> Optional[Dict[str, Any]]:
+        clean_name = name.strip()
+        args_json = json.dumps(args or [])
+        env_json = json.dumps(env or {})
+        now = datetime.now(timezone.utc).isoformat()
+        with self._conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO mcp_servers (name, command, args, env, enabled, description, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (clean_name, command.strip(), args_json, env_json, 1 if enabled else 0, description.strip(), now, now),
+            )
+        return self.get_mcp_server(clean_name)
+
+    def update_mcp_server(
+        self,
+        name: str,
+        command: Optional[str] = None,
+        args: Optional[List[str]] = None,
+        env: Optional[Dict[str, str]] = None,
+        enabled: Optional[bool] = None,
+        description: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        srv = self.get_mcp_server(name)
+        if not srv:
+            return None
+        new_cmd = command.strip() if command is not None else srv["command"]
+        new_args = json.dumps(args) if args is not None else json.dumps(srv["args"])
+        new_env = json.dumps(env) if env is not None else json.dumps(srv["env"])
+        new_enabled = 1 if (enabled if enabled is not None else srv["enabled"]) else 0
+        new_desc = description.strip() if description is not None else srv["description"]
+        now = datetime.now(timezone.utc).isoformat()
+
+        with self._conn() as conn:
+            conn.execute(
+                """
+                UPDATE mcp_servers SET
+                    command = ?, args = ?, env = ?, enabled = ?, description = ?, updated_at = ?
+                WHERE name = ?
+                """,
+                (new_cmd, new_args, new_env, new_enabled, new_desc, now, name),
+            )
+        return self.get_mcp_server(name)
+
+    def delete_mcp_server(self, name: str) -> bool:
+        with self._conn() as conn:
+            cursor = conn.execute("DELETE FROM mcp_servers WHERE name = ?", (name,))
+            return cursor.rowcount > 0
+
+    @staticmethod
+    def _row_to_mcp(row: sqlite3.Row) -> Dict[str, Any]:
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "command": row["command"],
+            "args": json.loads(row["args"]) if row["args"] else [],
+            "env": json.loads(row["env"]) if row["env"] else {},
+            "enabled": bool(row["enabled"]),
+            "description": row["description"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
     @staticmethod
     def _row_to_agent(row: sqlite3.Row) -> AgentRecord:
         group_list = [g.strip() for g in row["groups"].split(",") if g.strip()]
+        tools_list = list(DEFAULT_CORE_TOOLS)
+        if "tools" in row.keys() and row["tools"]:
+            try:
+                tools_list = json.loads(row["tools"])
+            except Exception:
+                pass
         return AgentRecord(
             id=row["id"],
             name=row["name"],
@@ -309,4 +431,5 @@ class Database:
             pid=row["pid"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            tools=tools_list,
         )

@@ -16,6 +16,7 @@ import aiohttp
 
 from .database import AgentRecord, Database
 from .security import mask_token, sanitize_log_text
+from .tool_hub import ToolHub
 
 
 logger = logging.getLogger("sheprd.telegram")
@@ -30,8 +31,8 @@ class TelegramBotWorker:
         self.running = False
         self.task: Optional[asyncio.Task] = None
         self.chat_contexts: Dict[int, List[Dict[str, str]]] = {}
-
         self.bot_username: str = "Unknown"
+        self.tool_hub = ToolHub(self.db)
 
     def get_agent(self) -> Optional[AgentRecord]:
         return self.db.get_agent_by_name(self.agent_name)
@@ -204,34 +205,35 @@ class TelegramBotWorker:
         messages.extend(context[-10:])  # Keep last 10 messages for context
         messages.append({"role": "user", "content": text})
 
-        url = f"http://127.0.0.1:{agent.port}/v1/chat/completions"
-        payload = {
-            "model": agent.name,
-            "messages": messages,
-            "temperature": 0.7,
-            "max_tokens": 1500,
-        }
+        async def _on_tool_event(event_type: str, data: Dict[str, Any]) -> None:
+            if event_type == "tool_call":
+                fn_name = data.get("name", "")
+                await self._send_chat_action(session, base_url, chat_id, "typing")
+                logger.info("Telegram: Agent %s calling tool '%s' for chat_id %s", agent.name, fn_name, chat_id)
 
         try:
-            async with session.post(url, json=payload, timeout=90) as resp:
-                if resp.status == 200:
-                    res_data = await resp.json()
-                    content = res_data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                    if content:
-                        context.append({"role": "user", "content": text})
-                        context.append({"role": "assistant", "content": content})
-                        self.db.log_chat(agent.name, f"telegram:{chat_id}", text)
-                        self.db.log_chat(agent.name, "assistant", content)
-                        await self._send_message(session, base_url, chat_id, content)
-                else:
-                    await self._send_message(
-                        session,
-                        base_url,
-                        chat_id,
-                        f"⚠️ Local inference server returned status {resp.status}. Is the model loaded?",
-                    )
+            content, updated_msgs = await self.tool_hub.chat_with_tools_loop(
+                agent=agent,
+                messages=messages,
+                session=session,
+                on_event=_on_tool_event,
+                max_iterations=4,
+            )
+            if content:
+                context.append({"role": "user", "content": text})
+                context.append({"role": "assistant", "content": content})
+                self.db.log_chat(agent.name, f"telegram:{chat_id}", text)
+                self.db.log_chat(agent.name, "assistant", content)
+                await self._send_message(session, base_url, chat_id, content)
+            else:
+                await self._send_message(
+                    session,
+                    base_url,
+                    chat_id,
+                    "⚠️ Local inference server returned an empty response.",
+                )
         except Exception as e:
-            logger.error("Error forwarding message to agent %s llama-server: %s", agent.name, e)
+            logger.error("Error running tool loop for agent %s on Telegram: %s", agent.name, e)
             await self._send_message(
                 session, base_url, chat_id, f"⚠️ Failed to reach local agent server: {e}"
             )

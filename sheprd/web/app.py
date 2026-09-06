@@ -31,6 +31,7 @@ from ..security import (
 )
 from ..server_manager import ServerManager
 from ..telegram_service import TelegramServiceManager
+from ..tool_hub import ToolHub
 
 
 logger = logging.getLogger("sheprd.web")
@@ -44,6 +45,7 @@ class SheprdWebApp:
         self.db = db or Database()
         self.server_mgr = ServerManager(self.db)
         self.telegram_mgr = TelegramServiceManager(self.db)
+        self.tool_hub = ToolHub(self.db)
         self.router = MultiAgentRouter(self.db)
         self.csrf_token = secrets.token_urlsafe(32)
         self.app = web.Application(middlewares=[self.csrf_middleware])
@@ -56,8 +58,9 @@ class SheprdWebApp:
         await self.telegram_mgr.sync_all()
 
     async def _on_cleanup(self, app: web.Application) -> None:
-        logger.info("Sheprd web app shutting down: stopping Telegram bots...")
+        logger.info("Sheprd web app shutting down: stopping Telegram bots and MCP servers...")
         await self.telegram_mgr.stop_all()
+        self.tool_hub.mcp_mgr.stop_all()
 
     @web.middleware
     async def csrf_middleware(self, request: web.Request, handler):
@@ -114,6 +117,14 @@ class SheprdWebApp:
         # Multi-agent & Group APIs
         self.app.router.add_get("/api/groups", self.handle_list_groups)
         self.app.router.add_post("/api/groups/{group_name}/ask", self.handle_group_ask)
+
+        # Tools & MCP APIs
+        self.app.router.add_get("/api/tools", self.handle_list_tools)
+        self.app.router.add_get("/api/mcp/servers", self.handle_list_mcp_servers)
+        self.app.router.add_post("/api/mcp/servers", self.handle_create_mcp_server)
+        self.app.router.add_put("/api/mcp/servers/{name}", self.handle_update_mcp_server)
+        self.app.router.add_delete("/api/mcp/servers/{name}", self.handle_delete_mcp_server)
+        self.app.router.add_post("/api/mcp/servers/{name}/test", self.handle_test_mcp_server)
 
     async def handle_index(self, request: web.Request) -> web.Response:
         index_file = WEB_DIR / "templates/index.html"
@@ -240,6 +251,15 @@ class SheprdWebApp:
             else:
                 groups = [str(g).strip() for g in raw_groups if str(g).strip()]
 
+            # Tools settings
+            raw_tools = data.get("tools")
+            tools = None
+            if raw_tools is not None:
+                if isinstance(raw_tools, str):
+                    tools = [t.strip() for t in raw_tools.split(",") if t.strip()]
+                else:
+                    tools = [str(t).strip() for t in raw_tools if str(t).strip()]
+
             # Create in Database
             agent = self.db.create_agent(
                 name=name,
@@ -257,6 +277,7 @@ class SheprdWebApp:
                 telegram_bot_token=tg_token,
                 callable_by_agents=callable_by,
                 groups=groups,
+                tools=tools,
             )
 
             # Install Herdr / terminal launcher script in ~/.local/bin/<name>
@@ -301,6 +322,14 @@ class SheprdWebApp:
             else:
                 groups = [str(g).strip() for g in raw_groups if str(g).strip()]
 
+        raw_tools = data.get("tools")
+        tools = None
+        if raw_tools is not None:
+            if isinstance(raw_tools, str):
+                tools = [t.strip() for t in raw_tools.split(",") if t.strip()]
+            else:
+                tools = [str(t).strip() for t in raw_tools if str(t).strip()]
+
         agent = self.db.update_agent(
             name=name,
             identity=data.get("identity"),
@@ -310,6 +339,7 @@ class SheprdWebApp:
             telegram_bot_token=tg_token,
             callable_by_agents=data.get("callable_by_agents"),
             groups=groups,
+            tools=tools,
         )
 
         if not agent:
@@ -417,40 +447,113 @@ class SheprdWebApp:
         messages.extend(history[-10:])
         messages.append({"role": "user", "content": prompt})
 
-        url = f"http://127.0.0.1:{agent.port}/v1/chat/completions"
-        payload = {
-            "model": agent.name,
-            "messages": messages,
-            "temperature": 0.7,
-            "max_tokens": 2048,
-        }
+        # Execute chat completion through ToolHub tool loop
+        executed_tools = []
+        async def _on_tool_event(event_type: str, evt_data: Dict[str, Any]):
+            if event_type == "tool_call":
+                executed_tools.append({
+                    "name": evt_data.get("name"),
+                    "arguments": evt_data.get("arguments"),
+                })
 
-        # B1 fix: Use async non-blocking aiohttp.ClientSession instead of urllib
         timeout = aiohttp.ClientTimeout(total=120)
         try:
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(url, json=payload) as resp:
-                    if resp.status == 200:
-                        res = await resp.json()
-                        reply = res.get("choices", [{}])[0].get("message", {}).get("content", "")
+                reply, _ = await self.tool_hub.chat_with_tools_loop(
+                    agent=agent,
+                    messages=messages,
+                    session=session,
+                    on_event=_on_tool_event,
+                    max_iterations=4,
+                )
 
-                        await asyncio.to_thread(self.db.log_chat, agent.name, "web_user", prompt)
-                        await asyncio.to_thread(self.db.log_chat, agent.name, "assistant", reply)
+                await asyncio.to_thread(self.db.log_chat, agent.name, "web_user", prompt)
+                await asyncio.to_thread(self.db.log_chat, agent.name, "assistant", reply)
 
-                        return web.json_response({
-                            "ok": True,
-                            "agent": agent.name,
-                            "response": reply,
-                            "usage": res.get("usage", {}),
-                        })
-                    else:
-                        err_text = await resp.text()
-                        return web.json_response(
-                            {"error": f"Local inference server error ({resp.status}): {err_text}"},
-                            status=resp.status,
-                        )
+                return web.json_response({
+                    "ok": True,
+                    "agent": agent.name,
+                    "response": reply,
+                    "tool_calls": executed_tools,
+                })
         except Exception as e:
+            logger.error("Chat agent inference error: %s", e)
             return web.json_response({"error": f"Inference error: {e}"}, status=500)
+
+    # ---------------------------------------------------------------------------
+    # Tools & MCP Server Handlers
+    # ---------------------------------------------------------------------------
+
+    async def handle_list_tools(self, request: web.Request) -> web.Response:
+        catalog = await asyncio.to_thread(self.tool_hub.get_available_tools_catalog)
+        return web.json_response({"tools": catalog})
+
+    async def handle_list_mcp_servers(self, request: web.Request) -> web.Response:
+        servers = await asyncio.to_thread(self.db.list_mcp_servers)
+        return web.json_response({"servers": servers})
+
+    async def handle_create_mcp_server(self, request: web.Request) -> web.Response:
+        data = await request.json()
+        name = (data.get("name") or "").strip()
+        command = (data.get("command") or "").strip()
+        args = data.get("args") or []
+        env = data.get("env") or {}
+        description = (data.get("description") or "").strip()
+        enabled = bool(data.get("enabled", True))
+
+        if not name or not command:
+            return web.json_response({"error": "Name and command are required."}, status=400)
+
+        srv = await asyncio.to_thread(
+            self.db.create_mcp_server,
+            name=name, command=command, args=args, env=env, enabled=enabled, description=description
+        )
+        return web.json_response({"ok": True, "server": srv}, status=201)
+
+    async def handle_update_mcp_server(self, request: web.Request) -> web.Response:
+        name = request.match_info["name"]
+        data = await request.json()
+        srv = await asyncio.to_thread(
+            self.db.update_mcp_server,
+            name=name,
+            command=data.get("command"),
+            args=data.get("args"),
+            env=data.get("env"),
+            enabled=data.get("enabled"),
+            description=data.get("description"),
+        )
+        if not srv:
+            return web.json_response({"error": f"MCP server '{name}' not found."}, status=404)
+        return web.json_response({"ok": True, "server": srv})
+
+    async def handle_delete_mcp_server(self, request: web.Request) -> web.Response:
+        name = request.match_info["name"]
+        self.tool_hub.mcp_mgr.stop_server(name)
+        deleted = await asyncio.to_thread(self.db.delete_mcp_server, name)
+        return web.json_response({"ok": deleted})
+
+    async def handle_test_mcp_server(self, request: web.Request) -> web.Response:
+        name = request.match_info["name"]
+        srv = await asyncio.to_thread(self.db.get_mcp_server, name)
+        if not srv:
+            return web.json_response({"error": f"MCP server '{name}' not found."}, status=404)
+
+        from ..mcp_client import MCPServerInfo
+        srv_info = MCPServerInfo(
+            id=srv["id"],
+            name=srv["name"],
+            command=srv["command"],
+            args=srv["args"],
+            env=srv["env"],
+            enabled=srv["enabled"],
+            description=srv["description"],
+        )
+        conn = await asyncio.to_thread(self.tool_hub.mcp_mgr.get_or_start_server, srv_info)
+        if not conn:
+            return web.json_response({"ok": False, "error": f"Failed to start/connect to MCP server '{name}'."}, status=500)
+
+        tools = [t["namespaced_name"] for t in conn.tools]
+        return web.json_response({"ok": True, "tools_count": len(tools), "tools": tools})
 
     async def handle_list_groups(self, request: web.Request) -> web.Response:
         agents = await asyncio.to_thread(self.db.list_agents)

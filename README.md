@@ -122,6 +122,21 @@ sheprd spawn sage
 - **Peer Delegation**: Call `@agent_name` inside interactive chat to route sub-prompts directly to specialized agents.
 - **Agent-Hub Synchronization**: Automatically syncs agent metadata with `~/.agent-hub/data/memory.db` for multi-tool discovery.
 
+### 6. Tools & Skills Ecosystem (Core + MCP Hub)
+Sheprd equips your local agents with live autonomous tool execution using standard OpenAI function calling format supported natively by `llama-server`:
+
+- **⚡ Built-in Core Tools (Zero-Setup & Zero-Dependency)**:
+  - 🌦️ **`get_weather`**: Real-time live weather conditions, temperature, humidity, and wind via `wttr.in`.
+  - 📖 **`wikipedia_search`**: Fact lookups, article summaries, and related topics via Wikipedia REST API.
+  - 🌐 **`fetch_url`**: Read and extract clean text from public web documentation or articles.
+  - 🧮 **`calculate`**: Safe AST-based mathematical expression evaluator (arithmetic, trigonometry, logarithms, roots).
+  - ⏱️ **`get_current_time`**: Live UTC time, system local timezone, and UNIX timestamps.
+- **🔌 Model Context Protocol (MCP) Client**:
+  - Direct stdio JSON-RPC 2.0 integration allowing agents to connect to any MCP server (Smithery, npm, uvx, Python).
+  - Built-in one-click presets for **DuckDuckGo Web Search**, **Brave Search**, **SQLite Databases**, **Local Filesystem**, and **Memory Graphs**.
+  - Available across Web Chat, Herdr interactive terminal, and Telegram bots.
+  - Automatic tool selection, iterative execution loops, and error recovery.
+
 ---
 
 ## 🔒 Hardened Security Model
@@ -160,17 +175,17 @@ Sheprd implements defense-in-depth across all system boundaries:
                                                   ▼                          ▼
                                         ┌───────────────────┐      ┌───────────────────┐
                                         │ Local llama-server│◄─────┤ Telegram Chat     │
-                                        │ Port 8081..8999   │      └───────────────────┘
-                                        └─────────▲─────────┘
-                                                  │
-                      ┌───────────────────────────┴──────────────────────────┐
-                      │                                                      │
-                      ▼                                                      ▼
-            ┌───────────────────┐                                  ┌───────────────────┐
-            │ Herdr Integration │                                  │ Agent-Hub Memory  │
-            │ ~/.local/bin/name │                                  │ ~/.agent-hub/     │
-            │ herdr.sock API    │                                  │ data/memory.db    │
-            └───────────────────┘                                  └───────────────────┘
+                                        │ Port 8081..8999   │      └─────────┬─────────┘
+                                        └─────────▲─────────┘                │
+                                                  │                          │
+                      ┌───────────────────────────┴──────────────────────────┴┐
+                      │                                                       │
+                      ▼                                                       ▼
+            ┌───────────────────┐                                   ┌───────────────────┐
+            │ Herdr Integration │                                   │ Tool Hub & MCP    │
+            │ ~/.local/bin/name │                                   │ JSON-RPC Client   │
+            │ herdr.sock API    │                                   │ 🌦️ 📖 🧮 🔌 💾     │
+            └───────────────────┘                                   └───────────────────┘
 ```
 
 ---
@@ -179,7 +194,7 @@ Sheprd implements defense-in-depth across all system boundaries:
 
 | Command | Description |
 |---|---|
-| `sheprd web [--port 8765]` | Launch the Digital Green Web UI |
+| `sheprd web [--port 8765]` | Launch the Digital Green Web UI & background services |
 | `sheprd list` | List all configured agents, ports, and statuses |
 | `sheprd inspect <path>` | Auto-inspect GGUF file and display hardware recommendations |
 | `sheprd download [model_key]` | Download starter models with progress indicator |
@@ -187,7 +202,13 @@ Sheprd implements defense-in-depth across all system boundaries:
 | `sheprd stop <name>` | Stop an agent's server process |
 | `sheprd stop-all` | Stop all active agent servers |
 | `sheprd spawn <name>` | Spawn agent in an active Herdr terminal tab |
-| `sheprd chat <name>` | Launch interactive Digital Green terminal chat |
+| `sheprd chat <name>` | Launch interactive Digital Green terminal chat with live tool execution |
+| `sheprd tools` | Display the system-wide catalog of Core and MCP tools |
+| `sheprd mcp list` | List registered external MCP servers |
+| `sheprd mcp add <name> <cmd> [args...]` | Register and connect a new stdio MCP server |
+| `sheprd mcp remove <name>` | Disconnect and remove an MCP server |
+| `sheprd telegram status` | Check connectivity status of all configured Telegram bots |
+| `sheprd telegram run` | Run foreground standalone Telegram bot worker |
 | `sheprd logs <name>` | View recent server logs |
 | `sheprd remove <name>` | Delete an agent and uninstall its Herdr launcher |
 

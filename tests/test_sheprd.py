@@ -4,15 +4,20 @@ Verifies security gates, GGUF parsing, database isolation,
 Herdr launcher creation, and multi-agent coordination.
 """
 
+import asyncio
+import json
 import os
 import shutil
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+from sheprd.core_tools import CORE_TOOLS_REGISTRY, calculate, execute_core_tool, get_current_time
 from sheprd.database import Database
 from sheprd.herdr_integration import HerdrIntegration
 from sheprd.inspector import GGUFInspector, HardwareInspector, analyze_model_and_recommend
+from sheprd.mcp_client import MCPManager, MCPServerInfo, StdioMCPConnection
 from sheprd.multi_agent import MultiAgentRouter
 from sheprd.security import (
     SecurityError,
@@ -200,6 +205,124 @@ class TestHerdrLauncher(unittest.TestCase):
         removed = HerdrIntegration.remove_launcher(agent_name)
         self.assertTrue(removed)
         self.assertFalse(launcher_path.exists())
+
+
+class TestToolsAndMCP(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.db_path = Path(self.temp_dir) / "test_sheprd.db"
+        self.db = Database(db_path=self.db_path)
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_core_calculator(self):
+        self.assertEqual(calculate("2 + 2 * 10"), "22")
+        self.assertEqual(calculate("(100 - 20) / 4"), "20.0")
+        self.assertIn("error", calculate("__import__('os').system('ls')").lower())
+        self.assertIn("error", calculate("invalid ++ syntax").lower())
+
+    def test_core_get_current_time(self):
+        t = get_current_time()
+        self.assertIn("UTC", t)
+
+    def test_execute_core_tool(self):
+        res = execute_core_tool("calculate", {"expression": "5 * 5"})
+        self.assertEqual(res, "25")
+        bad = execute_core_tool("nonexistent_tool", {})
+        self.assertIn("Unknown tool", bad)
+
+    def test_mock_stdio_mcp_connection(self):
+        mock_py = (
+            "import sys, json\n"
+            "for line in sys.stdin:\n"
+            "    line = line.strip()\n"
+            "    if not line: continue\n"
+            "    req = json.loads(line)\n"
+            "    m = req.get('method')\n"
+            "    rid = req.get('id')\n"
+            "    if m == 'initialize':\n"
+            "        res = {'jsonrpc': '2.0', 'id': rid, 'result': {'protocolVersion': '2024-11-05', 'capabilities': {'tools': {}}, 'serverInfo': {'name': 'mock-mcp', 'version': '1.0'}}}\n"
+            "        sys.stdout.write(json.dumps(res) + '\\n')\n"
+            "        sys.stdout.flush()\n"
+            "    elif m == 'notifications/initialized':\n"
+            "        pass\n"
+            "    elif m == 'tools/list':\n"
+            "        res = {'jsonrpc': '2.0', 'id': rid, 'result': {'tools': [{'name': 'ping', 'description': 'returns pong', 'inputSchema': {'type': 'object', 'properties': {'msg': {'type': 'string'}}}}]}}\n"
+            "        sys.stdout.write(json.dumps(res) + '\\n')\n"
+            "        sys.stdout.flush()\n"
+            "    elif m == 'tools/call':\n"
+            "        args = req.get('params', {}).get('arguments', {})\n"
+            "        res = {'jsonrpc': '2.0', 'id': rid, 'result': {'content': [{'type': 'text', 'text': 'pong: ' + args.get('msg', '')}]}}\n"
+            "        sys.stdout.write(json.dumps(res) + '\\n')\n"
+            "        sys.stdout.flush()\n"
+        )
+        conn = StdioMCPConnection("test_server", sys.executable, ["-c", mock_py])
+        try:
+            started = conn.start(timeout_sec=5.0)
+            self.assertTrue(started)
+            self.assertEqual(len(conn.tools), 1)
+            self.assertEqual(conn.tools[0]["namespaced_name"], "mcp__test_server__ping")
+
+            call_res = conn.call_tool("ping", {"msg": "hello"})
+            self.assertEqual(call_res, "pong: hello")
+        finally:
+            conn.stop()
+
+    def test_database_mcp_servers(self):
+        srv = self.db.create_mcp_server(
+            name="ddg",
+            command="npx",
+            args=["-y", "@modelcontextprotocol/server-duckduckgo"],
+            description="DuckDuckGo Search",
+        )
+        self.assertEqual(srv["name"], "ddg")
+        self.assertTrue(srv["enabled"])
+
+        servers = self.db.list_mcp_servers()
+        self.assertEqual(len(servers), 1)
+        self.assertEqual(servers[0]["name"], "ddg")
+
+        updated = self.db.update_mcp_server("ddg", description="Updated description")
+        self.assertEqual(updated["description"], "Updated description")
+
+        deleted = self.db.delete_mcp_server("ddg")
+        self.assertTrue(deleted)
+        self.assertEqual(len(self.db.list_mcp_servers()), 0)
+
+    def test_agent_tools_persistence_and_routing(self):
+        from sheprd.tool_hub import ToolHub
+
+        agent = self.db.create_agent(
+            name="toolbot",
+            identity="Tool Specialist",
+            personality="Efficient",
+            job="Testing tools",
+            model_path="/tmp/fake.gguf",
+            model_architecture="qwen2",
+            port=8097,
+            tools=["calculate", "get_current_time"],
+        )
+        self.assertIn("calculate", agent.tools)
+        self.assertIn("get_current_time", agent.tools)
+
+        retrieved = self.db.get_agent_by_name("toolbot")
+        self.assertEqual(retrieved.tools, ["calculate", "get_current_time"])
+
+        hub = ToolHub(self.db)
+        catalog = hub.get_available_tools_catalog()
+        self.assertTrue(any(t["name"] == "calculate" for t in catalog))
+        self.assertTrue(any(t["name"] == "get_weather" for t in catalog))
+
+        agent_defns = hub.get_tool_definitions_for_agent(retrieved)
+        self.assertEqual(len(agent_defns), 2)
+        defn_names = [d["function"]["name"] for d in agent_defns]
+        self.assertIn("calculate", defn_names)
+        self.assertIn("get_current_time", defn_names)
+
+        # Async tool execution via hub
+        res = asyncio.run(hub.execute_tool("calculate", {"expression": "12 * 12"}))
+        self.assertEqual(res, "144")
 
 
 if __name__ == "__main__":

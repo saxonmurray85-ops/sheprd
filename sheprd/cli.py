@@ -25,6 +25,7 @@ C_BOLD = "\033[1m"
 C_DIM = "\033[2m"
 C_RED = "\033[38;5;196m"
 C_CYAN = "\033[38;5;51m"
+C_AMBER = "\033[38;5;214m"
 
 
 def cmd_web(args):
@@ -239,6 +240,60 @@ def cmd_remove(args):
         print(f"{C_RED}[ERROR]{C_RESET} Agent '{agent_name}' not found.")
 
 
+def cmd_tools(args):
+    from .tool_hub import ToolHub
+    db = Database()
+    hub = ToolHub(db)
+    tools = hub.get_available_tools_catalog()
+
+    print(f"\n{C_BOLD}{C_BRIGHT_GREEN}SHEPRD TOOLS & SKILLS CATALOG{C_RESET}")
+    print(f"{C_DIM}{'=' * 80}{C_RESET}")
+    print(f"{'TYPE':<10} {'NAME':<24} {'SERVER':<16} {'DESCRIPTION'}")
+    print(f"{C_DIM}{'-' * 80}{C_RESET}")
+    for t in tools:
+        type_col = f"{C_CYAN}CORE{C_RESET}" if t["type"] == "core" else f"{C_AMBER}MCP{C_RESET}"
+        print(f"{type_col:<19} {C_BOLD}{t['name']:<24}{C_RESET} {t.get('server_name', 'built-in'):<16} {t['description'][:35]}")
+    print(f"{C_DIM}{'=' * 80}{C_RESET}\n")
+
+
+def cmd_mcp(args):
+    db = Database()
+    sub = getattr(args, "action", "list")
+
+    if sub == "list" or not sub:
+        servers = db.list_mcp_servers()
+        if not servers:
+            print(f"\n{C_DIM}No external MCP servers registered yet.{C_RESET}")
+            print(f"Add an MCP server using: {C_BOLD}sheprd mcp add <name> <command> [args...]{C_RESET}")
+            print(f"Example: {C_CYAN}sheprd mcp add duckduckgo npx -y @modelcontextprotocol/server-duckduckgo{C_RESET}\n")
+            return
+
+        print(f"\n{C_BOLD}{C_BRIGHT_GREEN}REGISTERED MCP TOOL SERVERS{C_RESET}")
+        print(f"{C_DIM}{'=' * 75}{C_RESET}")
+        print(f"{'NAME':<16} {'STATUS':<10} {'COMMAND':<20} {'ARGS'}")
+        print(f"{C_DIM}{'-' * 75}{C_RESET}")
+        for s in servers:
+            st = f"{C_BRIGHT_GREEN}ENABLED{C_RESET}" if s["enabled"] else f"{C_DIM}DISABLED{C_RESET}"
+            args_str = " ".join(s.get("args", []))[:30]
+            print(f"{C_BOLD}{s['name']:<16}{C_RESET} {st:<19} {s['command']:<20} {args_str}")
+        print(f"{C_DIM}{'=' * 75}{C_RESET}\n")
+
+    elif sub == "add":
+        name = args.name.strip()
+        cmd = args.mcp_command.strip()
+        cmd_args = args.extra_args or []
+        srv = db.create_mcp_server(name=name, command=cmd, args=cmd_args, description="Added via CLI")
+        print(f"{C_BRIGHT_GREEN}[SUCCESS]{C_RESET} Registered MCP server '{name}': {cmd} {' '.join(cmd_args)}")
+
+    elif sub == "remove":
+        name = args.name.strip()
+        deleted = db.delete_mcp_server(name)
+        if deleted:
+            print(f"{C_GREEN}[SHEPRD]{C_RESET} Removed MCP server '{name}'.")
+        else:
+            print(f"{C_RED}[ERROR]{C_RESET} MCP server '{name}' not found.")
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="sheprd",
@@ -301,6 +356,25 @@ def main():
     p_tg = subparsers.add_parser("telegram", aliases=["tg"], help="Manage Telegram bot workers")
     p_tg.add_argument("action", nargs="?", default="status", choices=["status", "run"], help="Action (status, run)")
     p_tg.set_defaults(func=cmd_telegram)
+
+    # tools
+    p_tools = subparsers.add_parser("tools", help="List available Core and MCP tools")
+    p_tools.set_defaults(func=cmd_tools)
+
+    # mcp
+    p_mcp = subparsers.add_parser("mcp", help="Manage external MCP servers")
+    p_mcp_sub = p_mcp.add_subparsers(dest="action")
+    p_mcp_list = p_mcp_sub.add_parser("list", help="List registered MCP servers")
+    p_mcp_list.set_defaults(func=cmd_mcp)
+    p_mcp_add = p_mcp_sub.add_parser("add", help="Register an MCP server")
+    p_mcp_add.add_argument("name", help="Server identifier name")
+    p_mcp_add.add_argument("mcp_command", help="Command binary, e.g. npx, python3, uvx")
+    p_mcp_add.add_argument("extra_args", nargs=argparse.REMAINDER, help="Arguments passed to MCP command")
+    p_mcp_add.set_defaults(func=cmd_mcp)
+    p_mcp_rm = p_mcp_sub.add_parser("remove", aliases=["rm"], help="Remove an MCP server")
+    p_mcp_rm.add_argument("name", help="Server name to remove")
+    p_mcp_rm.set_defaults(func=cmd_mcp)
+    p_mcp.set_defaults(func=cmd_mcp)
 
     # remove
     p_rm = subparsers.add_parser("remove", aliases=["rm", "delete"], help="Delete agent and launcher")
