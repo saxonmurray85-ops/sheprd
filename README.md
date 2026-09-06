@@ -1,6 +1,6 @@
 # ⚡ Sheprd: llama.cpp Agent Orchestrator & Herdr Integration
 
-> **Digital Green terminal & web orchestrator for deploying local llama.cpp models, spinning up specialized AI agents, and seamlessly spawning them inside Herdr terminal workspaces and Telegram.**
+> **Terminal & web orchestrator for deploying local llama.cpp models, spinning up specialized AI agents, and seamlessly spawning them inside Herdr terminal workspaces and Telegram.**
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-00ff66.svg?style=flat-square)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-00ff66.svg?style=flat-square)](https://opensource.org/licenses/MIT)
