@@ -131,9 +131,11 @@ Sheprd equips your local agents with live autonomous tool execution using standa
   - 🌐 **`fetch_url`**: Read and extract clean text from public web documentation or articles.
   - 🧮 **`calculate`**: Safe AST-based mathematical expression evaluator (arithmetic, trigonometry, logarithms, roots).
   - ⏱️ **`get_current_time`**: Live UTC time, system local timezone, and UNIX timestamps.
-- **🔌 Model Context Protocol (MCP) Client**:
-  - Direct stdio JSON-RPC 2.0 integration allowing agents to connect to any MCP server (Smithery, npm, uvx, Python).
-  - Built-in one-click presets for **DuckDuckGo Web Search**, **Brave Search**, **SQLite Databases**, **Local Filesystem**, and **Memory Graphs**.
+- **🔌 Model Context Protocol (MCP) Client & 1-Click Smithery Hub**:
+  - **1-Click Smithery & Registry Install**: Paste any Smithery tool URL (e.g. `https://smithery.ai/server/@smithery-ai/fetch`), package identifier (`@smithery-ai/...`), or terminal command. Sheprd automatically parses, installs, and connects it.
+  - **Zero-Config Popular App Store**: 1-click zero-setup additions directly from the Web UI for **Web Page Fetcher** (`uvx mcp-server-fetch`), **SQLite Database Inspector** (`uvx mcp-server-sqlite`), **Memory Graph** (`npx -y @modelcontextprotocol/server-memory`), **Git Inspector** (`uvx mcp-server-git`), **Local Filesystem**, and **Brave Search**.
+  - **Seamless Bi-directional Claude & Cursor Sync**: Any tool installed via Smithery Web (*"Install with Claude"*) or `smithery install --client claude` automatically synchronizes into Sheprd in real time!
+  - **Live Smithery Search**: Query over 100K+ Smithery MCP tools directly from the Web UI or CLI.
   - Available across Web Chat, Herdr interactive terminal, and Telegram bots.
   - Automatic tool selection, iterative execution loops, and error recovery.
 
@@ -214,7 +216,10 @@ Sheprd implements defense-in-depth across all system boundaries:
 | `sheprd chat <name>` | Launch interactive Digital Green terminal chat with live tool execution |
 | `sheprd tools` | Display the system-wide catalog of Core and MCP tools |
 | `sheprd mcp list` | List registered external MCP servers |
-| `sheprd mcp add <name> <cmd> [args...]` | Register and connect a new stdio MCP server |
+| `sheprd mcp install <target>` | 1-click install from Smithery URL, package identifier, or command |
+| `sheprd mcp sync` | Synchronize MCP servers from Claude Desktop and Cursor configs |
+| `sheprd mcp search <query>` | Search the Smithery 100K+ tool registry |
+| `sheprd mcp add <name> <cmd> [args...]` | Register and connect a new stdio MCP server manually |
 | `sheprd mcp remove <name>` | Disconnect and remove an MCP server |
 | `sheprd telegram status` | Check connectivity status of all configured Telegram bots |
 | `sheprd telegram run` | Run foreground standalone Telegram bot worker |

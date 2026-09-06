@@ -496,6 +496,83 @@ class TestHardeningAndHotSwap(unittest.TestCase):
         self.assertIn("agent_a", stopped_agents)
         self.assertIn("agent_b", started_agents)
 
+    def test_parse_mcp_install_string_formats(self):
+        from sheprd.mcp_smithery import parse_mcp_install_string
+
+        # 1. Smithery URL
+        url_res = parse_mcp_install_string("https://smithery.ai/server/@smithery-ai/fetch")
+        self.assertEqual(url_res["command"], "npx")
+        self.assertIn("@smithery-ai/fetch", url_res["args"])
+        self.assertEqual(url_res["name"], "fetch")
+
+        # 2. Smithery CLI command
+        cli_res = parse_mcp_install_string("npx -y @smithery/cli run @smithery-ai/sqlite")
+        self.assertEqual(cli_res["command"], "npx")
+        self.assertIn("@smithery-ai/sqlite", cli_res["args"])
+
+        # 3. Direct uvx command
+        uvx_res = parse_mcp_install_string("uvx mcp-server-git")
+        self.assertEqual(uvx_res["command"], "uvx")
+        self.assertEqual(uvx_res["args"], ["mcp-server-git"])
+        self.assertEqual(uvx_res["name"], "git")
+
+        # 4. Raw package name
+        pkg_res = parse_mcp_install_string("@smithery-ai/weather")
+        self.assertEqual(pkg_res["command"], "npx")
+        self.assertIn("@smithery-ai/weather", pkg_res["args"])
+        self.assertEqual(pkg_res["name"], "weather")
+
+        # 5. Featured catalog aliases
+        feat_res = parse_mcp_install_string("web-fetch")
+        self.assertEqual(feat_res["name"], "web_fetcher")
+        self.assertEqual(feat_res["command"], "uvx")
+
+        # 6. Claude Desktop JSON format
+        json_snippet = json.dumps({
+            "mcpServers": {
+                "custom_calc": {
+                    "command": "python3",
+                    "args": ["-m", "calc_server"],
+                    "env": {"API_KEY": "test123"}
+                }
+            }
+        })
+        json_res = parse_mcp_install_string(json_snippet)
+        self.assertEqual(json_res["name"], "custom_calc")
+        self.assertEqual(json_res["command"], "python3")
+        self.assertEqual(json_res["args"], ["-m", "calc_server"])
+        self.assertEqual(json_res["env"], {"API_KEY": "test123"})
+
+    def test_sync_external_client_configs(self):
+        import tempfile
+        from unittest.mock import patch
+        from sheprd.mcp_smithery import sync_external_client_configs
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            claude_cfg = Path(tmpdir) / "claude_desktop_config.json"
+            claude_cfg.write_text(json.dumps({
+                "mcpServers": {
+                    "external_fetch": {
+                        "command": "uvx",
+                        "args": ["mcp-server-fetch"]
+                    }
+                }
+            }), encoding="utf-8")
+
+            with patch("sheprd.mcp_smithery.CLAUDE_CONFIG_PATH", claude_cfg), \
+                 patch("sheprd.mcp_smithery.CURSOR_CONFIG_PATH", Path(tmpdir) / "none.json"), \
+                 patch("sheprd.mcp_smithery.CURSOR_CONFIG_ALT_PATH", Path(tmpdir) / "none2.json"), \
+                 patch("sheprd.mcp_smithery.SHEPRD_MCP_CONFIG_PATH", Path(tmpdir) / "none3.json"):
+
+                # First sync imports it
+                imported = sync_external_client_configs(self.db)
+                self.assertEqual(len(imported), 1)
+                self.assertEqual(imported[0]["name"], "external_fetch")
+
+                # Second sync is idempotent
+                imported_again = sync_external_client_configs(self.db)
+                self.assertEqual(len(imported_again), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

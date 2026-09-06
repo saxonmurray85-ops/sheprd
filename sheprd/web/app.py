@@ -30,6 +30,13 @@ from ..security import (
     validate_model_path,
     validate_port,
 )
+from ..mcp_smithery import (
+    FEATURED_MCP_CATALOG,
+    ensure_claude_desktop_config_exists,
+    parse_mcp_install_string,
+    search_smithery_registry,
+    sync_external_client_configs,
+)
 from ..server_manager import ServerManager
 from ..telegram_service import TelegramServiceManager
 from ..tool_hub import ToolHub
@@ -57,6 +64,10 @@ class SheprdWebApp:
     async def _on_startup(self, app: web.Application) -> None:
         logger.info("Sheprd web app starting: syncing all active Telegram bots...")
         await self.telegram_mgr.sync_all()
+        # Initialize Claude Desktop config path for Smithery CLI installs
+        await asyncio.to_thread(ensure_claude_desktop_config_exists)
+        # Auto-sync any existing external client configs (Claude/Cursor/Smithery)
+        await asyncio.to_thread(sync_external_client_configs, self.db)
 
     async def _on_cleanup(self, app: web.Application) -> None:
         logger.info("Sheprd web app shutting down: stopping Telegram bots and MCP servers...")
@@ -128,6 +139,10 @@ class SheprdWebApp:
         self.app.router.add_put("/api/mcp/servers/{name}", self.handle_update_mcp_server)
         self.app.router.add_delete("/api/mcp/servers/{name}", self.handle_delete_mcp_server)
         self.app.router.add_post("/api/mcp/servers/{name}/test", self.handle_test_mcp_server)
+        self.app.router.add_get("/api/mcp/featured", self.handle_featured_mcp)
+        self.app.router.add_post("/api/mcp/quick-install", self.handle_quick_install_mcp)
+        self.app.router.add_post("/api/mcp/sync-external", self.handle_sync_external_mcp)
+        self.app.router.add_get("/api/mcp/search", self.handle_search_mcp)
 
     async def handle_index(self, request: web.Request) -> web.Response:
         index_file = WEB_DIR / "templates/index.html"
@@ -519,6 +534,8 @@ class SheprdWebApp:
         return s_copy
 
     async def handle_list_mcp_servers(self, request: web.Request) -> web.Response:
+        # Automatically sync with Claude Desktop / Cursor / Smithery config files
+        await asyncio.to_thread(sync_external_client_configs, self.db)
         servers = await asyncio.to_thread(self.db.list_mcp_servers)
         masked_servers = [self._mask_mcp_server_secrets(s) for s in servers]
         return web.json_response({"servers": masked_servers})
@@ -594,8 +611,136 @@ class SheprdWebApp:
         if not conn:
             return web.json_response({"ok": False, "error": f"Failed to start/connect to MCP server '{name}'."}, status=500)
 
-        tools = [t["namespaced_name"] for t in conn.tools]
+        discovered = await asyncio.to_thread(conn.refresh_tools, 15.0)
+        tools = [t["namespaced_name"] for t in discovered]
+        await asyncio.to_thread(self.db.set_mcp_cached_tools, name, discovered)
         return web.json_response({"ok": True, "tools_count": len(tools), "tools": tools})
+
+    async def handle_featured_mcp(self, request: web.Request) -> web.Response:
+        """Returns list of curated 1-click popular MCP tools with installed status."""
+        installed_names = {s["name"] for s in await asyncio.to_thread(self.db.list_mcp_servers)}
+        catalog = []
+        for item in FEATURED_MCP_CATALOG:
+            item_copy = dict(item)
+            item_copy["installed"] = item["name"] in installed_names
+            catalog.append(item_copy)
+        return web.json_response({"featured": catalog})
+
+    async def handle_quick_install_mcp(self, request: web.Request) -> web.Response:
+        """
+        Universal 1-click MCP installer.
+        Accepts a Smithery URL, CLI command, JSON snippet, package identifier, or featured ID.
+        Automatically parses, creates server in DB, verifies connection, and caches tools.
+        """
+        try:
+            data = await request.json()
+            featured_id = data.get("featured_id")
+            raw_input = (data.get("input") or "").strip()
+            env_override = data.get("env") or {}
+
+            parsed = None
+            if featured_id:
+                for item in FEATURED_MCP_CATALOG:
+                    if item["id"] == featured_id:
+                        parsed = {
+                            "name": item["name"],
+                            "command": item["command"],
+                            "args": list(item["args"]),
+                            "env": dict(item.get("env") or {}),
+                            "description": item.get("description", ""),
+                        }
+                        break
+                if not parsed:
+                    return web.json_response({"error": f"Featured tool '{featured_id}' not found."}, status=404)
+            elif raw_input:
+                parsed = parse_mcp_install_string(raw_input)
+            elif data.get("name") and data.get("command"):
+                parsed = {
+                    "name": data.get("name"),
+                    "command": data.get("command"),
+                    "args": data.get("args") or [],
+                    "env": data.get("env") or {},
+                    "description": data.get("description") or "",
+                }
+            else:
+                return web.json_response({
+                    "error": "Please provide a Smithery link, command, package name, or select a featured tool."
+                }, status=400)
+
+            # Merge any user-provided env keys
+            if env_override and isinstance(env_override, dict):
+                parsed["env"].update(env_override)
+
+            name = validate_agent_name(parsed["name"])
+            existing = await asyncio.to_thread(self.db.get_mcp_server, name)
+            if existing:
+                srv = await asyncio.to_thread(
+                    self.db.update_mcp_server,
+                    name=name,
+                    command=parsed["command"],
+                    args=parsed["args"],
+                    env=parsed["env"],
+                    enabled=True,
+                    description=parsed["description"],
+                )
+            else:
+                srv = await asyncio.to_thread(
+                    self.db.create_mcp_server,
+                    name=name,
+                    command=parsed["command"],
+                    args=parsed["args"],
+                    env=parsed["env"],
+                    enabled=True,
+                    description=parsed["description"],
+                )
+
+            # Test connection & discover tools in background thread
+            from ..mcp_client import MCPServerInfo
+            srv_info = MCPServerInfo(
+                id=srv["id"],
+                name=srv["name"],
+                command=srv["command"],
+                args=srv["args"],
+                env=srv["env"],
+                enabled=srv["enabled"],
+                description=srv["description"],
+            )
+            conn = await asyncio.to_thread(self.tool_hub.mcp_mgr.get_or_start_server, srv_info)
+            tools = []
+            if conn:
+                discovered = await asyncio.to_thread(conn.refresh_tools, 15.0)
+                tools = [t["namespaced_name"] for t in discovered]
+                await asyncio.to_thread(self.db.set_mcp_cached_tools, name, discovered)
+
+            return web.json_response({
+                "ok": True,
+                "server": self._mask_mcp_server_secrets(srv),
+                "tools_count": len(tools),
+                "tools": tools,
+                "message": f"Successfully connected '{name}'! {len(tools)} tools discovered.",
+            })
+
+        except Exception as e:
+            logger.error("Quick install error: %s", e)
+            return web.json_response({"error": f"Install failed: {e}"}, status=400)
+
+    async def handle_sync_external_mcp(self, request: web.Request) -> web.Response:
+        """Scans Claude Desktop and Cursor configs to import newly added servers."""
+        imported = await asyncio.to_thread(sync_external_client_configs, self.db)
+        return web.json_response({
+            "ok": True,
+            "imported_count": len(imported),
+            "imported": [self._mask_mcp_server_secrets(s) for s in imported],
+            "message": f"Synced with Claude & Smithery configs: {len(imported)} new servers imported.",
+        })
+
+    async def handle_search_mcp(self, request: web.Request) -> web.Response:
+        """Searches Smithery's registry."""
+        q = request.query.get("q", "").strip()
+        if not q:
+            return web.json_response({"results": []})
+        results = await asyncio.to_thread(search_smithery_registry, q)
+        return web.json_response({"query": q, "results": results})
 
     async def handle_list_groups(self, request: web.Request) -> web.Response:
         agents = await asyncio.to_thread(self.db.list_agents)

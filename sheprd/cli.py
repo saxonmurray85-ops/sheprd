@@ -13,8 +13,10 @@ from .database import Database
 from .herdr_integration import HerdrIntegration
 from .inspector import analyze_model_and_recommend
 from .interactive_chat import InteractiveChatSession
+from .mcp_smithery import parse_mcp_install_string, search_smithery_registry, sync_external_client_configs
 from .security import SecurityError, mask_token, validate_model_path
 from .server_manager import ServerManager
+from .tool_hub import ToolHub
 from .web.app import run_web
 
 # Terminal styling
@@ -311,6 +313,89 @@ def cmd_mcp(args):
         srv = db.create_mcp_server(name=name, command=cmd, args=cmd_args, description="Added via CLI")
         print(f"{C_BRIGHT_GREEN}[SUCCESS]{C_RESET} Registered MCP server '{name}': {cmd} {' '.join(cmd_args)}")
 
+    elif sub == "install":
+        target = " ".join(args.target).strip()
+        if not target:
+            print(f"{C_RED}[ERROR]{C_RESET} Please provide a Smithery URL, package identifier, or command.")
+            return
+
+        print(f"{C_DIM}Parsing installation target: {target}...{C_RESET}")
+        try:
+            parsed = parse_mcp_install_string(target)
+            name = parsed["name"]
+            cmd = parsed["command"]
+            cmd_args = parsed["args"]
+            env = parsed["env"]
+            desc = parsed["description"]
+        except Exception as e:
+            print(f"{C_RED}[ERROR]{C_RESET} Failed to parse install string: {e}")
+            return
+
+        existing = db.get_mcp_server(name)
+        if existing:
+            srv = db.update_mcp_server(name=name, command=cmd, args=cmd_args, env=env, description=desc, enabled=True)
+            action = "Updated"
+        else:
+            srv = db.create_mcp_server(name=name, command=cmd, args=cmd_args, env=env, description=desc, enabled=True)
+            action = "Installed"
+
+        print(f"{C_BRIGHT_GREEN}[SUCCESS]{C_RESET} {action} MCP server '{C_BOLD}{name}{C_RESET}': {cmd} {' '.join(cmd_args)}")
+        print(f"{C_DIM}Probing tools via stdio...{C_RESET}")
+        try:
+            from .mcp_client import MCPServerInfo
+            srv_info = MCPServerInfo(
+                id=srv["id"],
+                name=srv["name"],
+                command=srv["command"],
+                args=srv["args"],
+                env=srv["env"],
+                enabled=srv["enabled"],
+                description=srv["description"],
+            )
+            hub = ToolHub(db)
+            conn = hub.mcp_mgr.get_or_start_server(srv_info)
+            if conn:
+                discovered = conn.refresh_tools(15.0)
+                db.set_mcp_cached_tools(name, discovered)
+                if discovered:
+                    tool_names = ", ".join(t["namespaced_name"] for t in discovered)
+                    print(f"{C_CYAN}[DISCOVERED]{C_RESET} {len(discovered)} tool(s) ready: {C_BOLD}{tool_names}{C_RESET}")
+                else:
+                    print(f"{C_DIM}Server connected. Tool schemas will be probed during agent runtime.{C_RESET}")
+            else:
+                print(f"{C_AMBER}[NOTE]{C_RESET} Server registered. Could not start stdio process.")
+        except Exception as e:
+            print(f"{C_AMBER}[NOTE]{C_RESET} Server registered. Tool probe warning: {e}")
+
+    elif sub == "sync":
+        print(f"{C_DIM}Scanning Claude Desktop and Cursor configs for Smithery tools...{C_RESET}")
+        new_servers = sync_external_client_configs(db)
+        if new_servers:
+            names = [s["name"] for s in new_servers]
+            print(f"{C_BRIGHT_GREEN}[SUCCESS]{C_RESET} Synced {len(new_servers)} server(s): {', '.join(names)}")
+        else:
+            print(f"{C_GREEN}[SHEPRD]{C_RESET} All MCP servers already synchronized.")
+
+    elif sub == "search":
+        query = " ".join(args.query).strip()
+        if not query:
+            print(f"{C_RED}[ERROR]{C_RESET} Please specify a search query.")
+            return
+        print(f"{C_DIM}Searching Smithery registry for '{query}'...{C_RESET}")
+        results = search_smithery_registry(query)
+        if not results:
+            print(f"{C_DIM}No results found on Smithery registry for '{query}'.{C_RESET}")
+            return
+        print(f"\n{C_BOLD}{C_CYAN}SMITHERY REGISTRY RESULTS ({len(results)}){C_RESET}")
+        print(f"{C_DIM}{'=' * 75}{C_RESET}")
+        print(f"{'NAME':<24} {'COMMAND':<25} {'DESCRIPTION'}")
+        print(f"{C_DIM}{'-' * 75}{C_RESET}")
+        for r in results:
+            desc_snip = r.get("description", "")[:24]
+            print(f"{C_BOLD}{r['name'][:23]:<24}{C_RESET} {r['command'][:24]:<25} {desc_snip}")
+        print(f"{C_DIM}{'=' * 75}{C_RESET}\n")
+        print(f"Install any tool with: {C_BOLD}sheprd mcp install <command-or-url>{C_RESET}\n")
+
     elif sub == "remove":
         name = args.name.strip()
         deleted = db.delete_mcp_server(name)
@@ -397,7 +482,15 @@ def main():
     p_mcp_sub = p_mcp.add_subparsers(dest="action")
     p_mcp_list = p_mcp_sub.add_parser("list", help="List registered MCP servers")
     p_mcp_list.set_defaults(func=cmd_mcp)
-    p_mcp_add = p_mcp_sub.add_parser("add", help="Register an MCP server")
+    p_mcp_install = p_mcp_sub.add_parser("install", help="1-click install from Smithery URL, package identifier, or command")
+    p_mcp_install.add_argument("target", nargs="+", help="Smithery URL, @package, command, or featured tool ID")
+    p_mcp_install.set_defaults(func=cmd_mcp)
+    p_mcp_sync = p_mcp_sub.add_parser("sync", help="Synchronize MCP servers from Claude Desktop and Cursor configs")
+    p_mcp_sync.set_defaults(func=cmd_mcp)
+    p_mcp_search = p_mcp_sub.add_parser("search", help="Search the Smithery tool registry")
+    p_mcp_search.add_argument("query", nargs="+", help="Keyword to search (e.g. fetch, git, search)")
+    p_mcp_search.set_defaults(func=cmd_mcp)
+    p_mcp_add = p_mcp_sub.add_parser("add", help="Register an MCP server manually")
     p_mcp_add.add_argument("name", help="Server identifier name")
     p_mcp_add.add_argument("mcp_command", help="Command binary, e.g. npx, python3, uvx")
     p_mcp_add.add_argument("extra_args", nargs=argparse.REMAINDER, help="Arguments passed to MCP command")
