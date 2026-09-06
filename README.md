@@ -137,6 +137,12 @@ Sheprd equips your local agents with live autonomous tool execution using standa
   - Available across Web Chat, Herdr interactive terminal, and Telegram bots.
   - Automatic tool selection, iterative execution loops, and error recovery.
 
+### 7. Dynamic LRU Model Hot-Swapping
+Running multiple local LLM servers simultaneously quickly exhausts GPU VRAM and system memory. Sheprd includes an intelligent Least-Recently-Used (LRU) model hot-swapping engine:
+- **Zero-Friction Activation**: When an agent is called (via Web Chat, Herdr terminal `sheprd spawn`, `@mention`, or Telegram), Sheprd ensures its server is active.
+- **Configurable VRAM Ceiling (`SHEPRD_MAX_ACTIVE_MODELS`)**: By default, Sheprd keeps `1` active model loaded in VRAM (perfect for single-GPU or shared systems). When a new agent is invoked, the least-recently-used server is automatically stopped and evicted before the new model loads.
+- **Multi-GPU Scalability**: Set `export SHEPRD_MAX_ACTIVE_MODELS=3` (or any integer) to support multiple concurrent active models on larger rigs.
+
 ---
 
 ## 🔒 Hardened Security Model
@@ -146,12 +152,14 @@ Sheprd implements defense-in-depth across all system boundaries:
 | Control | Implementation |
 |---|---|
 | **Path Traversal Guard** | Canonical resolution via `os.path.realpath`. Rejects system paths (`/etc`, `/proc`, `/sys`, `/root`) and user credential stores (`~/.ssh`, `~/.gnupg`, `secrets.env`). |
+| **SSRF & Network Shield** | `fetch_url` verifies DNS resolutions and enforces strict IP-level rejection of RFC-1918 private subnets (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), loopback (`127.0.0.0/8`), and cloud metadata services (`169.254.169.254`), with recursive redirect tracking and a 64KB download ceiling. |
+| **AST Exponent Bomb Guard** | Math evaluator rejects malicious nesting and caps exponents (`abs(exp) <= 100`, `abs(base) <= 10000`), neutralizing algorithmic complexity attacks like `9**9**9`. |
 | **GGUF Binary Validation** | Verifies `b'GGUF'` magic bytes before launching any binary process. |
 | **Subprocess Isolation** | Executes `llama-server` strictly via `list[str]` arguments (no `shell=True`, no bash string interpolation). |
-| **CSRF & API Token Defense** | Enforces Origin validation and `X-Sheprd-Token` checking for state-changing HTTP endpoints. Blocks cross-origin attacks. |
+| **CSRF & API Token Defense** | Enforces Origin validation and unconditional `X-Sheprd-Token` checking for state-changing HTTP endpoints. API token persisted to `~/.local/share/sheprd/api_token` with `0600` permissions. |
 | **PID Verification Guard** | Inspects `/proc/{pid}/cmdline` before sending termination signals to verify the target process is actually `llama-server`. |
 | **Strict File Permissions** | SQLite database and WAL files are maintained at `0600` (user read/write only). |
-| **Token Scrubbing** | Telegram tokens are masked in API responses (`123456:••••••••••••xYZ`) and scrubbed from all server logs. |
+| **Token Scrubbing** | Telegram tokens and MCP environment secrets are masked in API responses (`••••`) and scrubbed from all server logs. |
 | **Localhost Binding** | Servers and Web UI bind exclusively to `127.0.0.1`. |
 
 ---
@@ -199,6 +207,7 @@ Sheprd implements defense-in-depth across all system boundaries:
 | `sheprd inspect <path>` | Auto-inspect GGUF file and display hardware recommendations |
 | `sheprd download [model_key]` | Download starter models with progress indicator |
 | `sheprd start <name>` | Start the llama-server and Telegram bot for an agent |
+| `sheprd activate <name>` | Hot-swap/load agent model into memory (LRU eviction if at limit) |
 | `sheprd stop <name>` | Stop an agent's server process |
 | `sheprd stop-all` | Stop all active agent servers |
 | `sheprd spawn <name>` | Spawn agent in an active Herdr terminal tab |

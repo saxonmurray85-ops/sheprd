@@ -30,7 +30,15 @@ C_AMBER = "\033[38;5;214m"
 
 def cmd_web(args):
     print(f"{C_BRIGHT_GREEN}[SHEPRD]{C_RESET} Launching Digital Green Web UI at {C_BOLD}http://{args.host}:{args.port}{C_RESET}")
-    run_web(host=args.host, port=args.port)
+    try:
+        run_web(host=args.host, port=args.port)
+    except OSError as e:
+        if getattr(e, "errno", None) == 98 or "address already in use" in str(e).lower():
+            print(f"\n{C_RED}[ERROR]{C_RESET} Port {args.port} is already in use by another process.")
+            print(f"{C_AMBER}[ADVICE]{C_RESET} Another Sheprd instance or service is running on port {args.port}.")
+            print(f"        To resolve: `fuser -k {args.port}/tcp` or pass `--port <new_port>` (e.g. `sheprd web --port 8766`).\n")
+            sys.exit(1)
+        raise
 
 
 def cmd_list(args):
@@ -110,13 +118,31 @@ def cmd_start(args):
         sys.exit(1)
 
     print(f"{C_GREEN}[SHEPRD]{C_RESET} Starting server for agent '{agent_name}'...")
-    ok, msg = server_mgr.start_agent_server(agent_name)
+    ok, msg = server_mgr.ensure_agent_running(agent_name)
     if ok:
         print(f"{C_BRIGHT_GREEN}[SUCCESS]{C_RESET} {msg}")
         if agent.telegram_enabled and agent.telegram_bot_token:
             print(f"{C_CYAN}[TELEGRAM]{C_RESET} Telegram bot is enabled for this agent.")
             print(f"  • Launch '{C_BOLD}sheprd web{C_RESET}' (runs Web UI & Telegram worker automatically)")
             print(f"  • Or run '{C_BOLD}sheprd telegram run{C_RESET}' for a headless worker")
+    else:
+        print(f"{C_RED}[FAILED]{C_RESET} {msg}")
+        sys.exit(1)
+
+
+def cmd_activate(args):
+    db = Database()
+    server_mgr = ServerManager(db)
+    agent_name = args.name.strip()
+    agent = db.get_agent_by_name(agent_name)
+    if not agent:
+        print(f"{C_RED}[ERROR]{C_RESET} Agent '{agent_name}' not found.")
+        sys.exit(1)
+
+    print(f"{C_GREEN}[SHEPRD]{C_RESET} Activating agent '{agent_name}' (LRU hot-swap)...")
+    ok, msg = server_mgr.ensure_agent_running(agent_name)
+    if ok:
+        print(f"{C_BRIGHT_GREEN}[SUCCESS]{C_RESET} {msg}")
     else:
         print(f"{C_RED}[FAILED]{C_RESET} {msg}")
         sys.exit(1)
@@ -320,6 +346,11 @@ def main():
     p_start = subparsers.add_parser("start", help="Start agent's llama-server")
     p_start.add_argument("name", help="Agent name")
     p_start.set_defaults(func=cmd_start)
+
+    # activate
+    p_act = subparsers.add_parser("activate", help="Activate/hot-swap agent model into memory")
+    p_act.add_argument("name", help="Agent name")
+    p_act.set_defaults(func=cmd_activate)
 
     # stop
     p_stop = subparsers.add_parser("stop", help="Stop agent's llama-server")

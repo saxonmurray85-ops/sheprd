@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import os
+import queue
 import shutil
 import subprocess
 import threading
@@ -34,7 +35,11 @@ class MCPServerInfo:
 
 
 class StdioMCPConnection:
-    """Manages an active stdio JSON-RPC connection to an MCP server process."""
+    """
+    Manages an active stdio JSON-RPC connection to an MCP server process.
+    Features non-blocking background reader threads, real request timeouts,
+    and automatic stderr drainage to prevent pipe deadlocks (N4).
+    """
 
     def __init__(self, name: str, command: str, args: List[str], env: Optional[Dict[str, str]] = None):
         self.name = name
@@ -45,6 +50,10 @@ class StdioMCPConnection:
         self._msg_id = 0
         self._lock = threading.Lock()
         self.tools: List[Dict[str, Any]] = []
+        self._pending_requests: Dict[int, queue.Queue] = {}
+        self._stdout_thread: Optional[threading.Thread] = None
+        self._stderr_thread: Optional[threading.Thread] = None
+        self._closed = threading.Event()
 
     def _next_id(self) -> int:
         with self._lock:
@@ -53,11 +62,9 @@ class StdioMCPConnection:
 
     def start(self, timeout_sec: float = 10.0) -> bool:
         """Starts the MCP server subprocess and executes initialization handshake."""
-        # Resolve command path
         exec_path = shutil.which(self.command) or self.command
         full_env = os.environ.copy()
         full_env.update(self.env)
-        # Ensure node and mise binaries are in PATH if running npx
         if "PATH" in os.environ:
             full_env["PATH"] = os.environ["PATH"]
 
@@ -76,6 +83,13 @@ class StdioMCPConnection:
             logger.error("Failed to spawn MCP server '%s' (%s): %s", self.name, cmd, e)
             return False
 
+        # Launch background reader threads
+        self._closed.clear()
+        self._stdout_thread = threading.Thread(target=self._stdout_reader_loop, daemon=True, name=f"mcp-out-{self.name}")
+        self._stdout_thread.start()
+        self._stderr_thread = threading.Thread(target=self._stderr_drain_loop, daemon=True, name=f"mcp-err-{self.name}")
+        self._stderr_thread.start()
+
         # 1. Initialize
         init_id = self._next_id()
         init_req = {
@@ -85,7 +99,7 @@ class StdioMCPConnection:
             "params": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
-                "clientInfo": {"name": "sheprd", "version": "1.0.0"},
+                "clientInfo": {"name": "sheprd", "version": "0.1.0"},
             },
         }
 
@@ -95,6 +109,9 @@ class StdioMCPConnection:
             self.stop()
             return False
 
+        server_proto = resp.get("result", {}).get("protocolVersion", "2024-11-05")
+        logger.debug("MCP server '%s' initialized with protocol %s", self.name, server_proto)
+
         # 2. Initialized notification
         self._send_notification({"jsonrpc": "2.0", "method": "notifications/initialized"})
 
@@ -102,59 +119,86 @@ class StdioMCPConnection:
         self.refresh_tools(timeout_sec=timeout_sec)
         return True
 
+    def _stdout_reader_loop(self) -> None:
+        """Continuously reads JSON-RPC responses and dispatches to waiting request queues."""
+        while not self._closed.is_set() and self.proc and self.proc.stdout:
+            try:
+                line = self.proc.stdout.readline()
+                if not line:
+                    break
+                line = line.strip()
+                if not line or not line.startswith("{"):
+                    continue
+                try:
+                    data = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                req_id = data.get("id")
+                if req_id is not None:
+                    with self._lock:
+                        q = self._pending_requests.get(req_id)
+                    if q:
+                        q.put(data)
+            except Exception as e:
+                if not self._closed.is_set():
+                    logger.debug("MCP stdout read error on '%s': %s", self.name, e)
+                break
+
+    def _stderr_drain_loop(self) -> None:
+        """Drains stderr continuously to prevent pipe buffer deadlocks (N4)."""
+        while not self._closed.is_set() and self.proc and self.proc.stderr:
+            try:
+                line = self.proc.stderr.readline()
+                if not line:
+                    break
+                logger.debug("[%s stderr] %s", self.name, line.strip())
+            except Exception:
+                break
+
     def _send_notification(self, notif: Dict[str, Any]) -> None:
-        if not self.proc or not self.proc.stdin:
+        if not self.proc or not self.proc.stdin or self._closed.is_set():
             return
         try:
             line = json.dumps(notif) + "\n"
-            self.proc.stdin.write(line)
-            self.proc.stdin.flush()
+            with self._lock:
+                self.proc.stdin.write(line)
+                self.proc.stdin.flush()
         except Exception as e:
             logger.warning("Error sending notification to MCP '%s': %s", self.name, e)
 
     def _send_request(self, req: Dict[str, Any], timeout_sec: float = 15.0) -> Optional[Dict[str, Any]]:
-        if not self.proc or not self.proc.stdin or not self.proc.stdout:
+        """Sends request and waits for matching response on a dedicated queue with real timeout."""
+        if not self.proc or not self.proc.stdin or self._closed.is_set():
             return None
 
         req_id = req.get("id")
-        try:
-            line = json.dumps(req) + "\n"
-            self.proc.stdin.write(line)
-            self.proc.stdin.flush()
-        except Exception as e:
-            logger.error("Failed to write request to MCP '%s': %s", self.name, e)
+        if req_id is None:
             return None
 
-        # Read responses until match or EOF
-        import time
-        start_time = time.time()
-        while time.time() - start_time < timeout_sec:
-            if self.proc.poll() is not None:
-                stderr_out = self.proc.stderr.read() if self.proc.stderr else ""
-                logger.error("MCP process '%s' terminated prematurely: %s", self.name, stderr_out)
-                return None
+        res_q = queue.Queue(maxsize=1)
+        with self._lock:
+            self._pending_requests[req_id] = res_q
 
-            try:
-                # Read line
-                line = self.proc.stdout.readline()
-                if not line:
-                    time.sleep(0.05)
-                    continue
-                line = line.strip()
-                if not line or not line.startswith("{"):
-                    continue
+        try:
+            line = json.dumps(req) + "\n"
+            with self._lock:
+                self.proc.stdin.write(line)
+                self.proc.stdin.flush()
+        except Exception as e:
+            logger.error("Failed to write to MCP '%s': %s", self.name, e)
+            with self._lock:
+                self._pending_requests.pop(req_id, None)
+            return None
 
-                msg = json.loads(line)
-                if msg.get("id") == req_id:
-                    return msg
-            except json.JSONDecodeError:
-                continue
-            except Exception as e:
-                logger.error("Error reading from MCP '%s': %s", self.name, e)
-                break
-
-        logger.warning("MCP request timed out for '%s' (req_id=%s)", self.name, req_id)
-        return None
+        try:
+            return res_q.get(timeout=timeout_sec)
+        except queue.Empty:
+            logger.warning("MCP request timed out for '%s' (req_id=%s, timeout=%ss)", self.name, req_id, timeout_sec)
+            return None
+        finally:
+            with self._lock:
+                self._pending_requests.pop(req_id, None)
 
     def refresh_tools(self, timeout_sec: float = 10.0) -> List[Dict[str, Any]]:
         """Queries tools/list from the MCP server and stores them."""
@@ -232,7 +276,16 @@ class StdioMCPConnection:
         return output
 
     def stop(self) -> None:
-        """Terminates the MCP server process."""
+        """Terminates the MCP server process and cleans up reader threads."""
+        self._closed.set()
+        with self._lock:
+            for q in self._pending_requests.values():
+                try:
+                    q.put(None)
+                except Exception:
+                    pass
+            self._pending_requests.clear()
+
         if self.proc:
             try:
                 if self.proc.stdin:

@@ -24,18 +24,53 @@ logger = logging.getLogger("sheprd.telegram")
 TELEGRAM_TOKEN_REGEX = re.compile(r"^\d{8,12}:[A-Za-z0-9_-]{30,45}$")
 
 
+LOCK_DIR = Path.home() / ".local/share/sheprd"
+
+
 class TelegramBotWorker:
-    def __init__(self, agent_name: str, db: Database):
+    def __init__(self, agent_name: str, db: Database, server_mgr: Optional[Any] = None):
         self.agent_name = agent_name
         self.db = db
+        from .server_manager import ServerManager
+        self.server_mgr = server_mgr or ServerManager(self.db)
         self.running = False
         self.task: Optional[asyncio.Task] = None
         self.chat_contexts: Dict[int, List[Dict[str, str]]] = {}
         self.bot_username: str = "Unknown"
         self.tool_hub = ToolHub(self.db)
+        self._lock_file = LOCK_DIR / f"tg_{self.agent_name}.lock"
 
     def get_agent(self) -> Optional[AgentRecord]:
         return self.db.get_agent_by_name(self.agent_name)
+
+    def _acquire_lock(self) -> Tuple[bool, str]:
+        """Verify and acquire a PID lockfile for this Telegram worker (N10)."""
+        LOCK_DIR.mkdir(parents=True, exist_ok=True)
+        if self._lock_file.exists():
+            try:
+                old_pid = int(self._lock_file.read_text().strip())
+                os.kill(old_pid, 0)
+                return False, f"Telegram worker already active (PID {old_pid})."
+            except (ValueError, OSError):
+                try:
+                    self._lock_file.unlink(missing_ok=True)
+                except OSError:
+                    pass
+        try:
+            fd = os.open(str(self._lock_file), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write(str(os.getpid()))
+            return True, "Lock acquired."
+        except OSError as e:
+            return False, f"Could not acquire lock: {e}"
+
+    def _release_lock(self) -> None:
+        if self._lock_file.exists():
+            try:
+                if int(self._lock_file.read_text().strip()) == os.getpid():
+                    self._lock_file.unlink(missing_ok=True)
+            except Exception:
+                pass
 
     async def start(self) -> Tuple[bool, str]:
         agent = self.get_agent()
@@ -52,6 +87,10 @@ class TelegramBotWorker:
         if self.running:
             return True, "Telegram worker already running."
 
+        locked, lock_msg = self._acquire_lock()
+        if not locked:
+            return False, lock_msg
+
         self.running = True
         self.task = asyncio.create_task(self._poll_loop(token))
         return True, f"Telegram bot started for {self.agent_name} ({mask_token(token)})."
@@ -65,6 +104,7 @@ class TelegramBotWorker:
             except asyncio.CancelledError:
                 pass
             self.task = None
+        self._release_lock()
 
     async def _poll_loop(self, token: str) -> None:
         offset = 0
@@ -87,6 +127,13 @@ class TelegramBotWorker:
                 logger.error("Error connecting to Telegram for %s: %s", self.agent_name, clean_err)
                 self.running = False
                 return
+
+            # Warn once if no Telegram allowlist configured (N2/S3)
+            if not os.environ.get("SHEPRD_TELEGRAM_ALLOWED_USERS", "").strip():
+                logger.warning(
+                    "Telegram bot for '%s' running with NO user allowlist configured (SHEPRD_TELEGRAM_ALLOWED_USERS not set) — open to all users.",
+                    self.agent_name
+                )
 
             while self.running:
                 try:
@@ -133,7 +180,7 @@ class TelegramBotWorker:
         user_id = user_info.get("id")
         username = user_info.get("username", "")
 
-        logger.info(
+        logger.debug(
             "Telegram incoming message for agent '%s' from user_id=%s username=@%s: %s",
             self.agent_name, user_id, username, text[:60]
         )
@@ -188,6 +235,18 @@ class TelegramBotWorker:
                 await self._send_message(session, base_url, chat_id, status_text, parse_mode="Markdown")
                 return
 
+        # Ensure local model server is running (LRU hot-swapping)
+        ok, srv_err = await asyncio.to_thread(self.server_mgr.ensure_agent_running, agent.name)
+        if not ok:
+            logger.error("Failed to ensure agent server running for %s: %s", agent.name, srv_err)
+            await self._send_message(
+                session, base_url, chat_id, f"⚠️ Local agent server could not be started: {srv_err}"
+            )
+            return
+        agent = self.get_agent()
+        if not agent:
+            return
+
         # Send typing indicator
         await self._send_chat_action(session, base_url, chat_id, "typing")
 
@@ -202,7 +261,7 @@ class TelegramBotWorker:
         )
 
         messages = [{"role": "system", "content": system_prompt}]
-        messages.extend(context[-10:])  # Keep last 10 messages for context
+        messages.extend(context[-20:])  # Cap at last 20 messages for context (N13)
         messages.append({"role": "user", "content": text})
 
         async def _on_tool_event(event_type: str, data: Dict[str, Any]) -> None:
@@ -222,6 +281,7 @@ class TelegramBotWorker:
             if content:
                 context.append({"role": "user", "content": text})
                 context.append({"role": "assistant", "content": content})
+                self.chat_contexts[chat_id] = context[-20:]  # Cap memory
                 self.db.log_chat(agent.name, f"telegram:{chat_id}", text)
                 self.db.log_chat(agent.name, "assistant", content)
                 await self._send_message(session, base_url, chat_id, content)
@@ -302,14 +362,15 @@ class TelegramBotWorker:
 class TelegramServiceManager:
     """Manages Telegram bot workers for all registered Sheprd agents."""
 
-    def __init__(self, db: Database):
+    def __init__(self, db: Database, server_mgr: Optional[Any] = None):
         self.db = db
+        self.server_mgr = server_mgr
         self.workers: Dict[str, TelegramBotWorker] = {}
 
     async def start_agent_bot(self, agent_name: str) -> Tuple[bool, str]:
         if agent_name in self.workers and self.workers[agent_name].running:
             return True, "Bot already active."
-        worker = TelegramBotWorker(agent_name, self.db)
+        worker = TelegramBotWorker(agent_name, self.db, server_mgr=self.server_mgr)
         ok, msg = await worker.start()
         if ok:
             self.workers[agent_name] = worker

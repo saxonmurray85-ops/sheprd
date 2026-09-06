@@ -4,6 +4,8 @@ Parses GGUF models directly, discovers hardware topology (CPU, RAM, GPU/Vulkan),
 and computes optimal llama-server execution parameters.
 """
 
+import ctypes.util
+import glob
 import io
 import os
 import re
@@ -334,8 +336,19 @@ class HardwareInspector:
         except Exception:
             pass
 
-        # Vulkan check: check if libvulkan.so exists on system
-        vulkan_supported = os.path.exists("/usr/lib/libvulkan.so.1") or os.path.exists("/usr/lib64/libvulkan.so.1")
+        # Vulkan check: check find_library, multiarch, and standard library paths (B12/N16)
+        vulkan_supported = bool(ctypes.util.find_library("vulkan"))
+        if not vulkan_supported:
+            vulkan_candidates = [
+                "/usr/lib/libvulkan.so*",
+                "/usr/lib64/libvulkan.so*",
+                "/usr/lib/*-linux-gnu/libvulkan.so*",
+                "/usr/local/lib/libvulkan.so*",
+            ]
+            for pattern in vulkan_candidates:
+                if glob.glob(pattern):
+                    vulkan_supported = True
+                    break
 
         # Optimal threads: use number of physical cores (typically logical_cores // 2 or clamped to 8)
         rec_threads = min(8, max(2, logical_cores // 2 if logical_cores > 4 else logical_cores))

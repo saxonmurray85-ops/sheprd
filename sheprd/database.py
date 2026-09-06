@@ -17,7 +17,7 @@ from .security import SecurityError, mask_token, validate_agent_name, validate_g
 
 
 DEFAULT_DB_PATH = Path.home() / ".local/share/sheprd/sheprd.db"
-DEFAULT_CORE_TOOLS = ["get_weather", "wikipedia_search", "fetch_url", "calculate", "get_current_time"]
+DEFAULT_CORE_TOOLS = ["get_weather", "wikipedia_search", "calculate", "get_current_time"]
 
 
 @dataclass
@@ -150,6 +150,11 @@ class Database:
             if "tools" not in agent_cols:
                 default_tools_json = json.dumps(DEFAULT_CORE_TOOLS)
                 conn.execute(f"ALTER TABLE agents ADD COLUMN tools TEXT NOT NULL DEFAULT '{default_tools_json}';")
+
+            # Schema migration: check if 'cached_tools' exists in mcp_servers
+            mcp_cols = [c["name"] for c in conn.execute("PRAGMA table_info(mcp_servers)").fetchall()]
+            if "cached_tools" not in mcp_cols:
+                conn.execute("ALTER TABLE mcp_servers ADD COLUMN cached_tools TEXT NOT NULL DEFAULT '[]';")
 
         self._enforce_permissions()
 
@@ -306,6 +311,16 @@ class Database:
                 "INSERT INTO chat_logs (agent_name, sender, content, created_at) VALUES (?, ?, ?, ?)",
                 (agent_name, sender, content, now),
             )
+            # Prune old logs to prevent unbounded table growth (B13 / N22)
+            conn.execute(
+                """
+                DELETE FROM chat_logs
+                WHERE agent_name = ? AND id NOT IN (
+                    SELECT id FROM chat_logs WHERE agent_name = ? ORDER BY id DESC LIMIT 500
+                )
+                """,
+                (agent_name, agent_name),
+            )
 
     def get_chat_history(self, agent_name: str, limit: int = 50) -> List[Dict[str, Any]]:
         with self._conn() as conn:
@@ -329,6 +344,12 @@ class Database:
             row = conn.execute("SELECT * FROM mcp_servers WHERE name = ?", (name,)).fetchone()
             return self._row_to_mcp(row) if row else None
 
+    def set_mcp_cached_tools(self, name: str, tools: List[Dict[str, Any]]) -> None:
+        """Saves discovered tools catalog for this MCP server."""
+        tools_json = json.dumps(tools)
+        with self._conn() as conn:
+            conn.execute("UPDATE mcp_servers SET cached_tools = ? WHERE name = ?", (tools_json, name))
+
     def create_mcp_server(
         self,
         name: str,
@@ -338,7 +359,8 @@ class Database:
         enabled: bool = True,
         description: str = "",
     ) -> Optional[Dict[str, Any]]:
-        clean_name = name.strip()
+        # Enforce agent/server identifier regex rules to prevent XSS & path exploits (N3)
+        clean_name = validate_agent_name(name)
         args_json = json.dumps(args or [])
         env_json = json.dumps(env or {})
         now = datetime.now(timezone.utc).isoformat()
@@ -389,6 +411,12 @@ class Database:
 
     @staticmethod
     def _row_to_mcp(row: sqlite3.Row) -> Dict[str, Any]:
+        cached = []
+        if "cached_tools" in row.keys() and row["cached_tools"]:
+            try:
+                cached = json.loads(row["cached_tools"])
+            except Exception:
+                cached = []
         return {
             "id": row["id"],
             "name": row["name"],
@@ -397,6 +425,7 @@ class Database:
             "env": json.loads(row["env"]) if row["env"] else {},
             "enabled": bool(row["enabled"]),
             "description": row["description"],
+            "cached_tools": cached,
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }

@@ -21,6 +21,7 @@ from ..inspector import HardwareInspector, analyze_model_and_recommend
 from ..multi_agent import MultiAgentRouter
 from ..security import (
     SecurityError,
+    get_or_create_api_token,
     mask_token,
     validate_agent_name,
     validate_context_size,
@@ -44,10 +45,10 @@ class SheprdWebApp:
         self.port = port
         self.db = db or Database()
         self.server_mgr = ServerManager(self.db)
-        self.telegram_mgr = TelegramServiceManager(self.db)
+        self.telegram_mgr = TelegramServiceManager(self.db, server_mgr=self.server_mgr)
         self.tool_hub = ToolHub(self.db)
         self.router = MultiAgentRouter(self.db)
-        self.csrf_token = secrets.token_urlsafe(32)
+        self.csrf_token = get_or_create_api_token()
         self.app = web.Application(middlewares=[self.csrf_middleware])
         self.app.on_startup.append(self._on_startup)
         self.app.on_cleanup.append(self._on_cleanup)
@@ -64,7 +65,7 @@ class SheprdWebApp:
 
     @web.middleware
     async def csrf_middleware(self, request: web.Request, handler):
-        # S2: Enforce CSRF & Origin validation on mutating requests
+        # S2 & N5: Enforce CSRF & Origin validation on mutating requests
         if request.method in ("POST", "PUT", "DELETE", "PATCH"):
             # 1. Verify Origin/Referer if present
             origin = request.headers.get("Origin") or request.headers.get("Referer") or ""
@@ -83,10 +84,10 @@ class SheprdWebApp:
             if fetch_site == "cross-site":
                 return web.json_response({"error": "Forbidden: Cross-site request rejected (S2)."}, status=403)
 
-            # 3. Check X-Sheprd-Token header
+            # 3. Unconditionally enforce X-Sheprd-Token header (N5)
             token = request.headers.get("X-Sheprd-Token")
-            if token and not secrets.compare_digest(token, self.csrf_token):
-                return web.json_response({"error": "Forbidden: Invalid CSRF/auth token (S2)."}, status=403)
+            if not token or not secrets.compare_digest(token, self.csrf_token):
+                return web.json_response({"error": "Forbidden: Missing or invalid X-Sheprd-Token (S2/N5)."}, status=403)
 
         return await handler(request)
 
@@ -110,8 +111,10 @@ class SheprdWebApp:
         # Agent Lifecycle & Herdr APIs
         self.app.router.add_post("/api/agents/{name}/start", self.handle_start_agent)
         self.app.router.add_post("/api/agents/{name}/stop", self.handle_stop_agent)
+        self.app.router.add_post("/api/agents/{name}/activate", self.handle_activate_agent)
         self.app.router.add_post("/api/agents/{name}/spawn-herdr", self.handle_spawn_herdr)
         self.app.router.add_get("/api/agents/{name}/logs", self.handle_get_logs)
+        self.app.router.add_get("/api/agents/{name}/history", self.handle_get_history)
         self.app.router.add_post("/api/agents/{name}/chat", self.handle_chat_agent)
 
         # Multi-agent & Group APIs
@@ -225,8 +228,8 @@ class SheprdWebApp:
             # Validate path & security
             model_target = validate_model_path(model_path_str)
 
-            # Auto-inspect to get architecture if not supplied
-            meta, rec = analyze_model_and_recommend(str(model_target))
+            # Auto-inspect to get architecture if not supplied (non-blocking B1/N18)
+            meta, rec = await asyncio.to_thread(analyze_model_and_recommend, str(model_target))
             arch = data.get("model_architecture") or meta.architecture
 
             # Allocation of port
@@ -281,7 +284,7 @@ class SheprdWebApp:
             )
 
             # Install Herdr / terminal launcher script in ~/.local/bin/<name>
-            HerdrIntegration.install_launcher(name)
+            await asyncio.to_thread(HerdrIntegration.install_launcher, name)
 
             # Auto-start Telegram bot if configured
             if tg_enabled and tg_token:
@@ -359,10 +362,6 @@ class SheprdWebApp:
 
     async def handle_delete_agent(self, request: web.Request) -> web.Response:
         name = request.match_info["name"]
-        # Stop servers and workers
-        self.server_mgr.stop_agent_server(name)
-    async def handle_delete_agent(self, request: web.Request) -> web.Response:
-        name = request.match_info["name"]
         # Stop servers and workers (non-blocking B1)
         await asyncio.to_thread(self.server_mgr.stop_agent_server, name)
         await self.telegram_mgr.stop_agent_bot(name)
@@ -376,7 +375,7 @@ class SheprdWebApp:
         if not agent:
             return web.json_response({"error": f"Agent '{name}' not found."}, status=404)
 
-        ok, msg = await asyncio.to_thread(self.server_mgr.start_agent_server, name)
+        ok, msg = await asyncio.to_thread(self.server_mgr.ensure_agent_running, name)
         if not ok:
             return web.json_response({"ok": False, "error": msg}, status=500)
 
@@ -388,6 +387,18 @@ class SheprdWebApp:
         # Sync with Agent-Hub
         await asyncio.to_thread(self.router.sync_with_agent_hub)
 
+        return web.json_response({"ok": True, "message": msg})
+
+    async def handle_activate_agent(self, request: web.Request) -> web.Response:
+        """Hot-swap / ensure this agent's model is loaded into memory, evicting LRU if needed."""
+        name = request.match_info["name"]
+        agent = self.db.get_agent_by_name(name)
+        if not agent:
+            return web.json_response({"error": f"Agent '{name}' not found."}, status=404)
+
+        ok, msg = await asyncio.to_thread(self.server_mgr.ensure_agent_running, name)
+        if not ok:
+            return web.json_response({"ok": False, "error": msg}, status=500)
         return web.json_response({"ok": True, "message": msg})
 
     async def handle_stop_agent(self, request: web.Request) -> web.Response:
@@ -403,11 +414,10 @@ class SheprdWebApp:
         if not agent:
             return web.json_response({"error": f"Agent '{name}' not found."}, status=404)
 
-        # Ensure server is running (non-blocking B1)
-        if agent.status != "running":
-            ok, msg = await asyncio.to_thread(self.server_mgr.start_agent_server, name)
-            if not ok:
-                return web.json_response({"error": f"Failed to start server before spawning: {msg}"}, status=500)
+        # Ensure server is running (LRU hot-swap)
+        ok, msg = await asyncio.to_thread(self.server_mgr.ensure_agent_running, name)
+        if not ok:
+            return web.json_response({"error": f"Failed to start server before spawning: {msg}"}, status=500)
 
         ok, msg, details = await asyncio.to_thread(HerdrIntegration.spawn_in_herdr, name, prefer_tab=True)
         return web.json_response({"ok": ok, "message": msg, "details": details})
@@ -417,16 +427,29 @@ class SheprdWebApp:
         logs = await asyncio.to_thread(self.server_mgr.get_agent_logs, name, max_lines=150)
         return web.json_response({"agent": name, "logs": logs})
 
+    async def handle_get_history(self, request: web.Request) -> web.Response:
+        name = request.match_info["name"]
+        agent = self.db.get_agent_by_name(name)
+        if not agent:
+            return web.json_response({"error": f"Agent '{name}' not found."}, status=404)
+        limit = int(request.query.get("limit", 50))
+        history = await asyncio.to_thread(self.db.get_chat_history, name, limit=limit)
+        return web.json_response({"agent": name, "history": history})
+
     async def handle_chat_agent(self, request: web.Request) -> web.Response:
         name = request.match_info["name"]
         agent = self.db.get_agent_by_name(name)
         if not agent:
             return web.json_response({"error": f"Agent '{name}' not found."}, status=404)
 
-        if agent.status != "running":
-            ok, msg = await asyncio.to_thread(self.server_mgr.start_agent_server, name)
-            if not ok:
-                return web.json_response({"error": f"Agent server is not running: {msg}"}, status=503)
+        # Ensure server is active via LRU hot-swapping
+        ok, msg = await asyncio.to_thread(self.server_mgr.ensure_agent_running, name)
+        if not ok:
+            return web.json_response({"error": f"Agent server is not running: {msg}"}, status=503)
+
+        agent = self.db.get_agent_by_name(name)
+        if not agent:
+            return web.json_response({"error": f"Agent '{name}' not found."}, status=404)
 
         data = await request.json()
         prompt = (data.get("prompt") or "").strip()
@@ -444,7 +467,7 @@ class SheprdWebApp:
         )
 
         messages = [{"role": "system", "content": system_prompt}]
-        messages.extend(history[-10:])
+        messages.extend(history[-20:])  # Cap at last 20 messages (N13)
         messages.append({"role": "user", "content": prompt})
 
         # Execute chat completion through ToolHub tool loop
@@ -488,9 +511,17 @@ class SheprdWebApp:
         catalog = await asyncio.to_thread(self.tool_hub.get_available_tools_catalog)
         return web.json_response({"tools": catalog})
 
+    @staticmethod
+    def _mask_mcp_server_secrets(srv: Dict[str, Any]) -> Dict[str, Any]:
+        s_copy = dict(srv)
+        if "env" in s_copy and isinstance(s_copy["env"], dict):
+            s_copy["env"] = {k: mask_token(str(v)) if v else "" for k, v in s_copy["env"].items()}
+        return s_copy
+
     async def handle_list_mcp_servers(self, request: web.Request) -> web.Response:
         servers = await asyncio.to_thread(self.db.list_mcp_servers)
-        return web.json_response({"servers": servers})
+        masked_servers = [self._mask_mcp_server_secrets(s) for s in servers]
+        return web.json_response({"servers": masked_servers})
 
     async def handle_create_mcp_server(self, request: web.Request) -> web.Response:
         data = await request.json()
@@ -508,23 +539,34 @@ class SheprdWebApp:
             self.db.create_mcp_server,
             name=name, command=command, args=args, env=env, enabled=enabled, description=description
         )
-        return web.json_response({"ok": True, "server": srv}, status=201)
+        return web.json_response({"ok": True, "server": self._mask_mcp_server_secrets(srv)}, status=201)
 
     async def handle_update_mcp_server(self, request: web.Request) -> web.Response:
         name = request.match_info["name"]
         data = await request.json()
+        new_env = data.get("env")
+        if new_env is not None and isinstance(new_env, dict):
+            existing = await asyncio.to_thread(self.db.get_mcp_server, name)
+            if existing and "env" in existing and isinstance(existing["env"], dict):
+                merged_env = dict(existing["env"])
+                for k, v in new_env.items():
+                    if "••••" in str(v):
+                        continue  # Keep existing unmasked secret
+                    merged_env[k] = str(v)
+                new_env = merged_env
+
         srv = await asyncio.to_thread(
             self.db.update_mcp_server,
             name=name,
             command=data.get("command"),
             args=data.get("args"),
-            env=data.get("env"),
+            env=new_env,
             enabled=data.get("enabled"),
             description=data.get("description"),
         )
         if not srv:
             return web.json_response({"error": f"MCP server '{name}' not found."}, status=404)
-        return web.json_response({"ok": True, "server": srv})
+        return web.json_response({"ok": True, "server": self._mask_mcp_server_secrets(srv)})
 
     async def handle_delete_mcp_server(self, request: web.Request) -> web.Response:
         name = request.match_info["name"]

@@ -761,6 +761,18 @@ function closeAddMCPModal() {
 
 function setupMCPModal() {
   const form = document.getElementById("add-mcp-form");
+  const mcpList = document.getElementById("mcp-servers-list");
+  if (mcpList && !mcpList._hasDelegatedListener) {
+    mcpList._hasDelegatedListener = true;
+    mcpList.addEventListener("click", (e) => {
+      const btn = e.target.closest(".mcp-action-btn");
+      if (!btn) return;
+      const action = btn.dataset.action;
+      const name = btn.dataset.mcpName;
+      if (action === "test") testMCPServer(name);
+      else if (action === "delete") deleteMCPServer(name);
+    });
+  }
   if (!form) return;
 
   form.addEventListener("submit", async (e) => {
@@ -871,8 +883,8 @@ function renderMCPServers(servers) {
           </div>
           <div style="display: flex; gap: 6px; align-items: center;">
             <span class="tool-badge mcp">${s.enabled ? 'Enabled' : 'Disabled'}</span>
-            <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px;" onclick="testMCPServer('${escapeHtml(s.name)}')">⚡ Test</button>
-            <button class="btn btn-danger" style="padding: 2px 8px; font-size: 11px;" onclick="deleteMCPServer('${escapeHtml(s.name)}')">🗑</button>
+            <button class="btn btn-secondary mcp-action-btn" data-action="test" data-mcp-name="${escapeHtml(s.name)}" style="padding: 2px 8px; font-size: 11px;">⚡ Test</button>
+            <button class="btn btn-danger mcp-action-btn" data-action="delete" data-mcp-name="${escapeHtml(s.name)}" style="padding: 2px 8px; font-size: 11px;">🗑</button>
           </div>
         </div>
         <div class="tool-desc">${escapeHtml(s.description || "No description provided.")}</div>

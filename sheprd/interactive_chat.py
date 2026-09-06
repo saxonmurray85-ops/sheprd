@@ -12,6 +12,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import aiohttp
@@ -43,8 +44,8 @@ BANNER_ART = r"""
 
 
 class InteractiveChatSession:
-    def __init__(self, agent_name: str):
-        self.db = Database()
+    def __init__(self, agent_name: str, db: Optional[Database] = None):
+        self.db = db or Database()
         self.agent_name = agent_name
         self.server_mgr = ServerManager(self.db)
         self.pane_id = os.environ.get("HERDR_PANE_ID")
@@ -60,12 +61,13 @@ class InteractiveChatSession:
         if self.server_mgr.check_health(self.agent.port):
             return True
 
-        print(f"{C_GREEN}[SHEPRD]{C_RESET} Spawning local server for {C_BOLD}{self.agent_name}{C_RESET} on port {self.agent.port}...")
-        ok, msg = self.server_mgr.start_agent_server(self.agent_name, timeout_sec=25)
+        print(f"{C_GREEN}[SHEPRD]{C_RESET} Activating local model for {C_BOLD}{self.agent_name}{C_RESET} on port {self.agent.port}...")
+        ok, msg = self.server_mgr.ensure_agent_running(self.agent_name, timeout_sec=35)
         if not ok:
             print(f"{C_RED}[ERROR]{C_RESET} {msg}")
             return False
         print(f"{C_BRIGHT_GREEN}[ONLINE]{C_RESET} {msg}")
+        self.agent = self.db.get_agent_by_name(self.agent_name)
         return True
 
     def build_system_prompt(self) -> str:
@@ -86,7 +88,8 @@ class InteractiveChatSession:
 
     async def _async_chat(self, user_text: str) -> str:
         messages = [{"role": "system", "content": self.build_system_prompt()}]
-        messages.extend(self.history)
+        # Cap context history window to last 20 messages (N13)
+        messages.extend(self.history[-20:])
         messages.append({"role": "user", "content": user_text})
 
         async def _on_event(event_type: str, data: Dict[str, Any]) -> None:
@@ -125,6 +128,8 @@ class InteractiveChatSession:
             if full_reply_text:
                 self.history.append({"role": "user", "content": user_text})
                 self.history.append({"role": "assistant", "content": full_reply_text})
+                # Cap history in memory (N13)
+                self.history = self.history[-20:]
                 self.db.log_chat(self.agent.name, "user", user_text)
                 self.db.log_chat(self.agent.name, "assistant", full_reply_text)
             return full_reply_text

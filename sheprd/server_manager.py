@@ -4,6 +4,8 @@ Handles port allocation, isolated daemon execution, health probes,
 graceful shutdown, and log auditing.
 """
 
+from collections import OrderedDict
+import logging
 import os
 import signal
 import socket
@@ -17,6 +19,7 @@ from typing import Dict, List, Optional, Tuple
 from .database import AgentRecord, Database
 from .security import SecurityError, sanitize_log_text, validate_model_path
 
+logger = logging.getLogger("sheprd.server")
 
 LOGS_DIR = Path.home() / ".local/share/sheprd/logs"
 DEFAULT_BIN_PATH = Path.home() / ".local/share/sheprd/bin/llama-server"
@@ -29,6 +32,9 @@ class ServerManager:
         self.logs_dir = LOGS_DIR
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         self._running_processes: Dict[str, subprocess.Popen] = {}
+        # Model Hot-Swapping configuration: maximum concurrent loaded models in RAM/VRAM
+        self.max_active_models = int(os.environ.get("SHEPRD_MAX_ACTIVE_MODELS", "1"))
+        self._active_lru: OrderedDict[str, int] = OrderedDict()
 
     def resolve_binary(self) -> str:
         """Finds valid llama-server binary."""
@@ -46,8 +52,8 @@ class ServerManager:
             "Please ensure llama.cpp is installed in ~/.local/share/sheprd/bin/."
         )
 
-    def find_free_port(self, start_port: int = 8081, max_port: int = 8999) -> int:
-        """Finds an unused, available TCP port on 127.0.0.1 not allocated to any agent."""
+    def find_free_port(self, start_port: int = 8081, max_port: int = 9000) -> int:
+        """Finds an unused, available TCP port on 127.0.0.1 not allocated to any agent (B8)."""
         allocated = set(self.db.get_allocated_ports())
         for port in range(start_port, max_port):
             if port in allocated:
@@ -69,14 +75,83 @@ class ServerManager:
                 return True
 
     def check_health(self, port: int, timeout_sec: float = 1.0) -> bool:
-        """Checks if llama-server is healthy and ready to serve requests."""
+        """Checks if llama-server is healthy and ready to serve requests (HTTP 200) (S9 / N14)."""
         url = f"http://127.0.0.1:{port}/health"
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "Sheprd-HealthChecker/1.0"})
             with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
-                return resp.status in (200, 503)  # 503 indicates loading model; 200 is ready
+                # Strictly HTTP 200 (503 means model is still loading and not ready)
+                return resp.status == 200
         except Exception:
             return False
+
+    def _touch_lru(self, agent_name: str) -> None:
+        if agent_name in self._active_lru:
+            self._active_lru.move_to_end(agent_name)
+        else:
+            self._active_lru[agent_name] = int(time.time())
+
+    def get_active_agents(self) -> List[str]:
+        """Reconciles and returns list of actually running, healthy agent names."""
+        active = []
+        for agent in self.db.list_agents():
+            if agent.pid and self._verify_process_is_llama(agent.pid, agent.port) and self.check_health(agent.port):
+                active.append(agent.name)
+                self._touch_lru(agent.name)
+            elif agent.status == "running":
+                self.db.update_agent_status(agent.name, "stopped", None)
+        return active
+
+    def ensure_agent_running(self, agent_name: str, timeout_sec: int = 45) -> Tuple[bool, str]:
+        """
+        Hot-Swapping Engine: Ensures that the requested agent's model is loaded and ready.
+        If loading this agent would exceed max_active_models (default: 1), gracefully
+        evicts the least recently used running agent model to free GPU VRAM and system memory.
+        """
+        agent = self.db.get_agent_by_name(agent_name)
+        if not agent:
+            return False, f"Agent '{agent_name}' not found."
+
+        # 1. Check if already healthy
+        if agent.pid and self._verify_process_is_llama(agent.pid, agent.port) and self.check_health(agent.port):
+            self._touch_lru(agent_name)
+            return True, f"Agent '{agent_name}' is already running and ready."
+
+        # 2. Reconcile currently active models
+        running_agents = self.get_active_agents()
+        if agent_name in running_agents:
+            running_agents.remove(agent_name)
+
+        # 3. Evict oldest model(s) if at or above capacity limit
+        while len(running_agents) >= self.max_active_models:
+            evict_candidate = None
+            for candidate in list(self._active_lru.keys()):
+                if candidate in running_agents and candidate != agent_name:
+                    evict_candidate = candidate
+                    break
+
+            if not evict_candidate and running_agents:
+                evict_candidate = running_agents[0]
+
+            if evict_candidate:
+                logger.info(
+                    "[HOT-SWAP] Evicting model for agent '%s' to free VRAM/RAM for '%s' (max active: %d)...",
+                    evict_candidate, agent_name, self.max_active_models
+                )
+                self.stop_agent_server(evict_candidate)
+                self._active_lru.pop(evict_candidate, None)
+                if evict_candidate in running_agents:
+                    running_agents.remove(evict_candidate)
+            else:
+                break
+
+        # 4. Start the target agent
+        ok, msg = self.start_agent_server(agent_name, timeout_sec=timeout_sec)
+        if ok:
+            self._touch_lru(agent_name)
+            logger.info("[HOT-SWAP] Successfully loaded model for agent '%s' on port %d.", agent_name, agent.port)
+            return True, f"Model swapped: agent '{agent_name}' is now active."
+        return False, msg
 
     def start_agent_server(self, agent_name: str, timeout_sec: int = 30) -> Tuple[bool, str]:
         """
@@ -93,40 +168,41 @@ class ServerManager:
                 self.db.update_agent_status(agent_name, "running", agent.pid)
                 return True, f"Agent '{agent_name}' is already running on port {agent.port}."
 
-        bin_exec = self.resolve_binary()
-        model_target = validate_model_path(agent.model_path)
-
         log_file_path = self.logs_dir / f"{agent_name}.log"
-        log_file = open(log_file_path, "a", encoding="utf-8")
         try:
-            os.chmod(log_file_path, 0o600)
-        except OSError:
-            pass
+            # Pre-flight binary and model resolution safely caught (B7a / N21)
+            bin_exec = self.resolve_binary()
+            model_target = validate_model_path(agent.model_path)
 
-        # Command arguments list (no shell=True for strict command injection defense)
-        cmd = [
-            bin_exec,
-            "-m", str(model_target),
-            "-c", str(agent.context_size),
-            "--port", str(agent.port),
-            "--host", "127.0.0.1",
-            "-t", str(agent.threads),
-            "-b", "2048",
-            "-ub", "512",
-        ]
+            log_file = open(log_file_path, "a", encoding="utf-8")
+            try:
+                os.chmod(log_file_path, 0o600)
+            except OSError:
+                pass
 
-        if agent.n_gpu_layers > 0:
-            cmd.extend(["-ngl", str(agent.n_gpu_layers)])
+            # Command arguments list (no shell=True for strict command injection defense)
+            cmd = [
+                bin_exec,
+                "-m", str(model_target),
+                "-c", str(agent.context_size),
+                "--port", str(agent.port),
+                "--host", "127.0.0.1",
+                "-t", str(agent.threads),
+                "-b", "2048",
+                "-ub", "512",
+            ]
 
-        # Additional optimizations for responsiveness
-        cmd.extend(["--parallel", "1", "--cont-batching"])
+            if agent.n_gpu_layers > 0:
+                cmd.extend(["-ngl", str(agent.n_gpu_layers)])
 
-        # Timestamp log entry
-        log_file.write(f"\n--- Sheprd starting {agent_name} at {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
-        log_file.write(f"Command: {' '.join(cmd)}\n")
-        log_file.flush()
+            # Additional optimizations for responsiveness
+            cmd.extend(["--parallel", "1", "--cont-batching"])
 
-        try:
+            # Timestamp log entry
+            log_file.write(f"\n--- Sheprd starting {agent_name} at {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+            log_file.write(f"Command: {' '.join(cmd)}\n")
+            log_file.flush()
+
             proc = subprocess.Popen(
                 cmd,
                 stdout=log_file,

@@ -42,22 +42,29 @@ class ToolHub:
                 "server_name": "built-in",
             })
 
-        # 2. MCP server tools
+        # 2. MCP server tools (prefer cached tools to avoid blocking event loop or spawning processes, N7)
         mcp_servers = self.db.list_mcp_servers()
         for srv in mcp_servers:
             if not srv["enabled"]:
                 continue
-            srv_info = MCPServerInfo(
-                id=srv["id"],
-                name=srv["name"],
-                command=srv["command"],
-                args=srv["args"],
-                env=srv["env"],
-                enabled=srv["enabled"],
-                description=srv["description"],
-            )
-            conn = self.mcp_mgr.get_or_start_server(srv_info)
-            if conn:
+
+            # Check if tools are cached in database
+            cached_tools = srv.get("cached_tools") or []
+            if cached_tools:
+                for tool in cached_tools:
+                    catalog.append({
+                        "type": "mcp",
+                        "name": tool["namespaced_name"],
+                        "raw_name": tool["raw_name"],
+                        "description": tool["description"],
+                        "parameters": tool.get("definition", {}).get("function", {}).get("parameters", {}),
+                        "server_name": srv["name"],
+                    })
+                continue
+
+            # Fallback: only read from live active connection if already running
+            conn = self.mcp_mgr.get_connection(srv["name"])
+            if conn and conn.tools:
                 for tool in conn.tools:
                     catalog.append({
                         "type": "mcp",
@@ -85,29 +92,41 @@ class ToolHub:
         for srv in mcp_servers:
             if not srv["enabled"]:
                 continue
-            # Server is enabled if explicitly in agent.tools or "all_mcp" in agent.tools
             srv_key = f"mcp:{srv['name']}"
             if srv_key in agent_tools or "all_mcp" in agent_tools or any(t.startswith(f"mcp__{srv['name']}__") for t in agent_tools):
-                srv_info = MCPServerInfo(
-                    id=srv["id"],
-                    name=srv["name"],
-                    command=srv["command"],
-                    args=srv["args"],
-                    env=srv["env"],
-                    enabled=srv["enabled"],
-                    description=srv["description"],
-                )
-                conn = self.mcp_mgr.get_or_start_server(srv_info)
-                if conn:
+                # Use cached tools if available
+                cached_tools = srv.get("cached_tools") or []
+                if cached_tools:
+                    for tool in cached_tools:
+                        if srv_key in agent_tools or "all_mcp" in agent_tools or tool["namespaced_name"] in agent_tools:
+                            definitions.append(tool["definition"])
+                    continue
+
+                # Live connection fallback
+                conn = self.mcp_mgr.get_connection(srv["name"])
+                if conn and conn.tools:
                     for tool in conn.tools:
                         if srv_key in agent_tools or "all_mcp" in agent_tools or tool["namespaced_name"] in agent_tools:
                             definitions.append(tool["definition"])
 
         return definitions
 
-    async def execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> str:
-        """Executes a tool call and returns the text result."""
+    async def execute_tool(self, tool_name: str, arguments: Dict[str, Any], agent: Optional[AgentRecord] = None) -> str:
+        """Executes a tool call and returns the text result with strict execution permissions (N11)."""
         logger.info("Executing tool '%s' with arguments: %s", tool_name, json.dumps(arguments)[:200])
+
+        # Enforce agent tool execution permission (N11)
+        if agent is not None:
+            agent_tools = set(agent.tools or [])
+            if tool_name in CORE_TOOLS_REGISTRY:
+                if tool_name not in agent_tools and "all_core" not in agent_tools:
+                    return f"Permission error: Tool '{tool_name}' is not authorized for agent '{agent.name}'."
+            elif tool_name.startswith("mcp__"):
+                parts = tool_name.split("__", 2)
+                server_name = parts[1] if len(parts) >= 2 else ""
+                srv_key = f"mcp:{server_name}"
+                if srv_key not in agent_tools and "all_mcp" not in agent_tools and tool_name not in agent_tools:
+                    return f"Permission error: MCP tool '{tool_name}' is not authorized for agent '{agent.name}'."
 
         # 1. Check Core Tools
         if tool_name in CORE_TOOLS_REGISTRY:
@@ -120,7 +139,7 @@ class ToolHub:
                 server_name, raw_tool_name = parts[1], parts[2]
                 conn = self.mcp_mgr.get_connection(server_name)
                 if not conn or not conn.proc or conn.proc.poll() is not None:
-                    # Attempt restart
+                    # Attempt non-blocking start (N7)
                     srv = self.db.get_mcp_server(server_name)
                     if srv:
                         srv_info = MCPServerInfo(
@@ -132,7 +151,10 @@ class ToolHub:
                             enabled=srv["enabled"],
                             description=srv["description"],
                         )
-                        conn = self.mcp_mgr.get_or_start_server(srv_info)
+                        conn = await asyncio.to_thread(self.mcp_mgr.get_or_start_server, srv_info)
+                        if conn and conn.tools:
+                            # Update cached tools in DB
+                            await asyncio.to_thread(self.db.set_mcp_cached_tools, server_name, conn.tools)
 
                 if conn:
                     return await asyncio.to_thread(conn.call_tool, raw_tool_name, arguments)
@@ -218,7 +240,7 @@ class ToolHub:
                             except Exception:
                                 pass
 
-                        tool_output = await self.execute_tool(fn_name, fn_args)
+                        tool_output = await self.execute_tool(fn_name, fn_args, agent=agent)
 
                         # Truncate output to protect context window limit
                         max_out = 3500

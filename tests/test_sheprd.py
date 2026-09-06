@@ -325,5 +325,177 @@ class TestToolsAndMCP(unittest.TestCase):
         self.assertEqual(res, "144")
 
 
+class TestHardeningAndHotSwap(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.db_path = Path(self.temp_dir) / "test_hardening.db"
+        self.db = Database(db_path=self.db_path)
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_ssrf_protection(self):
+        from sheprd.core_tools import tool_fetch_url
+
+        # Loopback IPv4
+        res1 = tool_fetch_url("http://127.0.0.1:8080/admin")
+        self.assertIn("SSRF guard", res1)
+
+        # Cloud metadata service (169.254.169.254)
+        res2 = tool_fetch_url("http://169.254.169.254/latest/meta-data/")
+        self.assertIn("SSRF guard", res2)
+
+        # RFC-1918 Private networks
+        res3 = tool_fetch_url("http://192.168.1.1/router")
+        self.assertIn("SSRF guard", res3)
+        res4 = tool_fetch_url("http://10.0.0.5/api")
+        self.assertIn("SSRF guard", res4)
+
+        # Scheme guard
+        res5 = tool_fetch_url("ftp://example.com/file")
+        self.assertIn("Only http and https protocols are supported", res5)
+
+    def test_ast_pow_bounds(self):
+        # Exponent bomb: 9**9**9
+        res = calculate("9**9**9")
+        self.assertIn("exponent bomb guard", res)
+
+        # Base too large for exponentiation
+        res2 = calculate("10001**2")
+        self.assertIn("exponent bomb guard", res2)
+
+        # Exponent too large
+        res3 = calculate("2**101")
+        self.assertIn("exponent bomb guard", res3)
+
+        # Valid exponentiation within bounds
+        self.assertEqual(calculate("2**10"), "1024")
+
+    def test_tool_permission_enforcement(self):
+        from sheprd.tool_hub import ToolHub
+
+        agent = self.db.create_agent(
+            name="time_only_bot",
+            identity="Clock",
+            personality="Punctual",
+            job="Tell time",
+            model_path="/tmp/fake.gguf",
+            model_architecture="qwen2",
+            port=8101,
+            tools=["get_current_time"],
+        )
+
+        hub = ToolHub(self.db)
+
+        # Calling unauthorized tool
+        bad_call = asyncio.run(hub.execute_tool("calculate", {"expression": "2+2"}, agent=agent))
+        self.assertIn("Permission error", bad_call)
+        self.assertIn("time_only_bot", bad_call)
+
+        # Calling authorized tool
+        good_call = asyncio.run(hub.execute_tool("get_current_time", {}, agent=agent))
+        self.assertIn("UTC", good_call)
+
+    def test_interactive_chat_session_instantiation(self):
+        from sheprd.interactive_chat import InteractiveChatSession
+
+        agent = self.db.create_agent(
+            name="chat_bot",
+            identity="Chat Agent",
+            personality="Polite",
+            job="Chat",
+            model_path="/tmp/fake.gguf",
+            model_architecture="qwen2",
+            port=8102,
+        )
+
+        session = InteractiveChatSession(agent.name, db=self.db)
+        self.assertEqual(session.agent_name, "chat_bot")
+        self.assertIsNotNone(session.server_mgr)
+
+    def test_api_token_creation_and_perms(self):
+        from sheprd.security import get_or_create_api_token
+
+        token = get_or_create_api_token()
+        self.assertGreaterEqual(len(token), 32)
+
+        token_file = Path.home() / ".local/share/sheprd/api_token"
+        self.assertTrue(token_file.exists())
+        file_mode = token_file.stat().st_mode & 0o777
+        self.assertEqual(file_mode, 0o600)
+
+    def test_mcp_secrets_masking(self):
+        from sheprd.web.app import SheprdWebApp
+
+        raw_server = {
+            "id": 1,
+            "name": "search_mcp",
+            "command": "npx",
+            "args": ["-y", "duckduckgo"],
+            "env": {"API_KEY": "supersecretkey1234567890"},
+            "enabled": True,
+            "description": "Search tools",
+        }
+
+        masked = SheprdWebApp._mask_mcp_server_secrets(raw_server)
+        self.assertIn("••••", masked["env"]["API_KEY"])
+        self.assertNotIn("supersecretkey1234567890", masked["env"]["API_KEY"])
+
+    def test_server_manager_lru_hot_swap(self):
+        from sheprd.server_manager import ServerManager
+
+        agent_a = self.db.create_agent(
+            name="agent_a",
+            identity="Agent A",
+            personality="Alpha",
+            job="Task A",
+            model_path="/tmp/model_a.gguf",
+            model_architecture="qwen2",
+            port=8103,
+        )
+        agent_b = self.db.create_agent(
+            name="agent_b",
+            identity="Agent B",
+            personality="Beta",
+            job="Task B",
+            model_path="/tmp/model_b.gguf",
+            model_architecture="qwen2",
+            port=8104,
+        )
+
+        mgr = ServerManager(self.db)
+        mgr.max_active_models = 1
+
+        # Track mock start/stop events
+        stopped_agents = []
+        started_agents = []
+
+        def mock_start(name, *args, **kwargs):
+            started_agents.append(name)
+            self.db.update_agent_status(name, "running", 99999)
+            return True, f"Mock started {name}"
+
+        def mock_stop(name, *args, **kwargs):
+            stopped_agents.append(name)
+            self.db.update_agent_status(name, "stopped", None)
+            return True, f"Mock stopped {name}"
+
+        mgr.start_agent_server = mock_start
+        mgr.stop_agent_server = mock_stop
+        mgr.check_health = lambda port: True
+        mgr._verify_process_is_llama = lambda pid, port: True
+
+        # Ensure agent_a runs
+        ok_a, _ = mgr.ensure_agent_running("agent_a")
+        self.assertTrue(ok_a)
+        self.assertIn("agent_a", started_agents)
+
+        # Now ensure agent_b runs with limit=1: agent_a should be stopped (evicted)
+        ok_b, _ = mgr.ensure_agent_running("agent_b")
+        self.assertTrue(ok_b)
+        self.assertIn("agent_a", stopped_agents)
+        self.assertIn("agent_b", started_agents)
+
+
 if __name__ == "__main__":
     unittest.main()

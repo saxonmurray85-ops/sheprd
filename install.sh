@@ -53,12 +53,21 @@ echo -e "${C_DIM}[3/5] Checking llama.cpp binary bundle...${C_RESET}"
 if [ ! -f "${SHEPRD_BIN}/llama-server" ]; then
     echo -e "${C_CYAN}  Downloading prebuilt llama.cpp (Vulkan/x86_64)...${C_RESET}"
     LLAMA_RELEASE_URL="https://github.com/ggml-org/llama.cpp/releases/download/b10827/llama-b10827-bin-ubuntu-vulkan-x64.tar.gz"
+    EXPECTED_SHA256="9005df90e98f94bbf20b328104e4481a1a09fbc47c3039617923ffb1287fdcc4"
     TEMP_TAR="/tmp/sheprd-llama-$$.tar.gz"
     
     if curl -sSL -o "${TEMP_TAR}" "${LLAMA_RELEASE_URL}"; then
+        ACTUAL_SHA256="$(sha256sum "${TEMP_TAR}" | awk '{print $1}')"
+        if [ "${ACTUAL_SHA256}" != "${EXPECTED_SHA256}" ]; then
+            echo -e "${C_RED}  Error: SHA-256 checksum mismatch for llama.cpp binary bundle!${C_RESET}"
+            echo -e "${C_RED}  Expected: ${EXPECTED_SHA256}${C_RESET}"
+            echo -e "${C_RED}  Got:      ${ACTUAL_SHA256}${C_RESET}"
+            rm -f "${TEMP_TAR}"
+            exit 1
+        fi
         tar -xzf "${TEMP_TAR}" -C "${SHEPRD_BIN}" --strip-components=1
         rm -f "${TEMP_TAR}"
-        echo -e "${C_GREEN}  llama-server runtime installed to ${SHEPRD_BIN}.${C_RESET}"
+        echo -e "${C_GREEN}  llama-server runtime verified and installed to ${SHEPRD_BIN}.${C_RESET}"
     else
         echo -e "${C_RED}  Failed to download llama.cpp release. You can place your own llama-server in ${SHEPRD_BIN}.${C_RESET}"
     fi
@@ -66,16 +75,23 @@ else
     echo -e "${C_GREEN}  llama-server runtime is already present.${C_RESET}"
 fi
 
-# 4. Install Sheprd CLI wrapper
-echo -e "${C_DIM}[4/5] Registering Sheprd CLI and binaries...${C_RESET}"
+# 4. Install Sheprd package & CLI
+echo -e "${C_DIM}[4/5] Installing Sheprd package and registering CLI...${C_RESET}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-cat << EOF > "${LOCAL_BIN}/sheprd"
+# Install package in editable user mode
+if python3 -m pip install --user -e "${SCRIPT_DIR}" >/dev/null 2>&1; then
+    echo -e "${C_GREEN}  Installed Sheprd via pip in user mode.${C_RESET}"
+else
+    echo -e "${C_DIM}  pip install failed or unavailable; falling back to direct wrapper script.${C_RESET}"
+    cat << EOF > "${LOCAL_BIN}/sheprd"
 #!/usr/bin/env bash
+PYTHON_BIN="\$(command -v python3 2>/dev/null || echo "python3")"
 export PYTHONPATH="${SCRIPT_DIR}:\${PYTHONPATH:-}"
-exec /usr/bin/python3 -m sheprd.cli "\$@"
+exec "\${PYTHON_BIN}" -m sheprd.cli "\$@"
 EOF
-chmod +x "${LOCAL_BIN}/sheprd"
+    chmod +x "${LOCAL_BIN}/sheprd"
+fi
 
 # Also symlink llama-server / llama-cli into ~/.local/bin if they exist
 if [ -f "${SHEPRD_BIN}/llama-server" ]; then

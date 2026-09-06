@@ -226,3 +226,43 @@ def validate_groups(groups: Optional[List[str]]) -> List[str]:
             valid.append(clean)
     return valid or ["default"]
 
+
+API_TOKEN_PATH = Path.home() / ".local/share/sheprd/api_token"
+
+
+def get_or_create_api_token() -> str:
+    """
+    Retrieves or generates the persistent API authorization token (N5).
+    Stored with strict 0600 file permissions to prevent multi-user local leakage.
+    """
+    import secrets
+
+    token_file = API_TOKEN_PATH
+    token_file.parent.mkdir(parents=True, exist_ok=True)
+    if token_file.exists():
+        try:
+            token = token_file.read_text("utf-8").strip()
+            if token and len(token) >= 32:
+                try:
+                    os.chmod(token_file, 0o600)
+                except OSError:
+                    pass
+                return token
+        except Exception:
+            pass
+
+    token = secrets.token_urlsafe(32)
+    tmp_path = token_file.with_name(f"{token_file.name}.tmp.{os.getpid()}")
+    try:
+        tmp_path.write_text(token, encoding="utf-8")
+        os.chmod(tmp_path, 0o600)
+        os.replace(tmp_path, token_file)
+        os.chmod(token_file, 0o600)
+    except Exception:
+        token_file.write_text(token, encoding="utf-8")
+        try:
+            os.chmod(token_file, 0o600)
+        except OSError:
+            pass
+    return token
+

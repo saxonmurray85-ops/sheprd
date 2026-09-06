@@ -9,18 +9,20 @@ Provides zero-setup, zero-dependency native tools in pure Python:
 """
 
 import ast
+import ipaddress
 import json
 import logging
 import math
 import operator
 import re
+import socket
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from html import unescape
 from html.parser import HTMLParser
 from typing import Any, Callable, Dict, List, Optional, Tuple
-
 
 logger = logging.getLogger("sheprd.tools.core")
 
@@ -66,6 +68,13 @@ def _safe_eval_node(node: ast.AST) -> Any:
             raise ValueError(f"Operator {op_type.__name__} is not allowed")
         left = _safe_eval_node(node.left)
         right = _safe_eval_node(node.right)
+        if op_type is ast.Pow:
+            if not isinstance(left, (int, float)) or not isinstance(right, (int, float)):
+                raise ValueError("Exponents and bases must be numeric.")
+            if abs(right) > 100 or abs(left) > 10000:
+                raise ValueError("Exponent or base is too large to safely compute (exponent bomb guard).")
+            if abs(right) > 20 and abs(left) > 10:
+                raise ValueError("Calculation magnitude exceeds memory limits (exponent bomb guard).")
         return _ALLOWED_OPERATORS[op_type](left, right)
     elif isinstance(node, ast.UnaryOp):
         op_type = type(node.op)
@@ -197,19 +206,60 @@ def tool_wikipedia_search(query: str) -> str:
         return f"Error querying Wikipedia for '{clean_query}': {e}"
 
 
-def tool_fetch_url(url: str) -> str:
-    """Fetches text content from a web URL and converts HTML to plain text."""
-    clean_url = url.strip()
-    if not (clean_url.startswith("http://") or clean_url.startswith("https://")):
-        return "Error: URL must start with http:// or https://"
+def _is_safe_public_url(url: str) -> Tuple[bool, str]:
+    """Validates that a URL does not resolve to private, loopback, link-local or cloud metadata IP."""
+    try:
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False, "Only http and https protocols are supported."
+        hostname = parsed.hostname
+        if not hostname:
+            return False, "Invalid URL: hostname missing."
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
 
+        addr_infos = socket.getaddrinfo(hostname, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        for family, socktype, proto, canonname, sockaddr in addr_infos:
+            ip_str = sockaddr[0]
+            ip = ipaddress.ip_address(ip_str)
+            if ip.is_loopback:
+                return False, f"Access to loopback address {ip} is prohibited (SSRF guard)."
+            if ip.is_private:
+                return False, f"Access to private subnet address {ip} is prohibited (SSRF guard)."
+            if ip.is_link_local:
+                return False, f"Access to link-local / cloud metadata address {ip} is prohibited (SSRF guard)."
+            if ip.is_reserved or ip.is_multicast:
+                return False, f"Access to reserved address {ip} is prohibited (SSRF guard)."
+        return True, ""
+    except Exception as e:
+        return False, f"Failed to resolve URL destination: {e}"
+
+
+class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Enforces SSRF boundary checks on HTTP redirect targets."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        is_safe, reason = _is_safe_public_url(newurl)
+        if not is_safe:
+            raise urllib.error.HTTPError(newurl, 403, f"SSRF redirection blocked: {reason}", headers, None)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def tool_fetch_url(url: str) -> str:
+    """Fetches text content from a public web URL with strict SSRF defense."""
+    clean_url = url.strip()
+    is_safe, reason = _is_safe_public_url(clean_url)
+    if not is_safe:
+        return f"Error: URL blocked by security policy: {reason}"
+
+    opener = urllib.request.build_opener(_SafeRedirectHandler())
     req = urllib.request.Request(clean_url, headers={
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     })
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with opener.open(req, timeout=10) as resp:
             content_type = resp.headers.get("Content-Type", "")
-            raw = resp.read().decode("utf-8", errors="ignore")
+            # Cap read to 64KB to prevent multi-GB memory exhaustion bomb (N2)
+            raw_bytes = resp.read(65536)
+            raw = raw_bytes.decode("utf-8", errors="ignore")
 
             if "text/html" in content_type or "<html" in raw.lower():
                 parser = _HTMLTextExtractor()
@@ -218,7 +268,6 @@ def tool_fetch_url(url: str) -> str:
             else:
                 text = raw
 
-            # Cap length to prevent blowing context window (max ~3000 chars)
             max_len = 3000
             if len(text) > max_len:
                 text = text[:max_len] + f"\n... [Truncated: {len(text) - max_len} remaining characters]"
@@ -241,12 +290,20 @@ def tool_calculate(expression: str) -> str:
 
 
 def tool_get_current_time(timezone_name: str = "UTC") -> str:
-    """Returns the current date, time, and UTC timestamp."""
+    """Returns the current date, time, and UTC timestamp in requested timezone."""
+    clean_tz = (timezone_name or "UTC").strip()
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(clean_tz)
+    except Exception:
+        tz = timezone.utc
+
+    now_tz = datetime.now(tz)
     now_utc = datetime.now(timezone.utc)
-    now_local = datetime.now().astimezone()
     return json.dumps({
+        "time": now_tz.strftime("%Y-%m-%d %H:%M:%S %Z"),
+        "timezone": str(tz),
         "utc_time": now_utc.strftime("%Y-%m-%d %H:%M:%S UTC"),
-        "local_time": now_local.strftime("%Y-%m-%d %H:%M:%S %Z"),
         "timestamp": int(now_utc.timestamp()),
     }, indent=2)
 
