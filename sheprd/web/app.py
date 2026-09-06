@@ -47,7 +47,17 @@ class SheprdWebApp:
         self.router = MultiAgentRouter(self.db)
         self.csrf_token = secrets.token_urlsafe(32)
         self.app = web.Application(middlewares=[self.csrf_middleware])
+        self.app.on_startup.append(self._on_startup)
+        self.app.on_cleanup.append(self._on_cleanup)
         self._setup_routes()
+
+    async def _on_startup(self, app: web.Application) -> None:
+        logger.info("Sheprd web app starting: syncing all active Telegram bots...")
+        await self.telegram_mgr.sync_all()
+
+    async def _on_cleanup(self, app: web.Application) -> None:
+        logger.info("Sheprd web app shutting down: stopping Telegram bots...")
+        await self.telegram_mgr.stop_all()
 
     @web.middleware
     async def csrf_middleware(self, request: web.Request, handler):
@@ -252,6 +262,10 @@ class SheprdWebApp:
             # Install Herdr / terminal launcher script in ~/.local/bin/<name>
             HerdrIntegration.install_launcher(name)
 
+            # Auto-start Telegram bot if configured
+            if tg_enabled and tg_token:
+                await self.telegram_mgr.start_agent_bot(name)
+
             return web.json_response({
                 "ok": True,
                 "message": f"Agent '{name}' registered successfully. Launcher installed.",
@@ -302,7 +316,7 @@ class SheprdWebApp:
             return web.json_response({"error": f"Agent '{name}' not found."}, status=404)
 
         # Sync telegram state if bot enabled changed
-        if agent.telegram_enabled and agent.telegram_bot_token and agent.status == "running":
+        if agent.telegram_enabled and agent.telegram_bot_token:
             await self.telegram_mgr.start_agent_bot(agent.name)
         else:
             await self.telegram_mgr.stop_agent_bot(agent.name)

@@ -13,7 +13,7 @@ from .database import Database
 from .herdr_integration import HerdrIntegration
 from .inspector import analyze_model_and_recommend
 from .interactive_chat import InteractiveChatSession
-from .security import SecurityError, validate_model_path
+from .security import SecurityError, mask_token, validate_model_path
 from .server_manager import ServerManager
 from .web.app import run_web
 
@@ -103,13 +103,59 @@ def cmd_start(args):
     db = Database()
     server_mgr = ServerManager(db)
     agent_name = args.name.strip()
+    agent = db.get_agent_by_name(agent_name)
+    if not agent:
+        print(f"{C_RED}[ERROR]{C_RESET} Agent '{agent_name}' not found.")
+        sys.exit(1)
+
     print(f"{C_GREEN}[SHEPRD]{C_RESET} Starting server for agent '{agent_name}'...")
     ok, msg = server_mgr.start_agent_server(agent_name)
     if ok:
         print(f"{C_BRIGHT_GREEN}[SUCCESS]{C_RESET} {msg}")
+        if agent.telegram_enabled and agent.telegram_bot_token:
+            print(f"{C_CYAN}[TELEGRAM]{C_RESET} Telegram bot is enabled for this agent.")
+            print(f"  • Launch '{C_BOLD}sheprd web{C_RESET}' (runs Web UI & Telegram worker automatically)")
+            print(f"  • Or run '{C_BOLD}sheprd telegram run{C_RESET}' for a headless worker")
     else:
         print(f"{C_RED}[FAILED]{C_RESET} {msg}")
         sys.exit(1)
+
+
+def cmd_telegram(args):
+    db = Database()
+    from .telegram_service import TelegramServiceManager
+    sub = getattr(args, "action", "status")
+
+    if sub == "status" or not sub:
+        agents = [a for a in db.list_agents() if a.telegram_enabled]
+        if not agents:
+            print(f"{C_DIM}No agents currently have Telegram bot enabled.{C_RESET}")
+            return
+        print(f"\n{C_BOLD}{C_BRIGHT_GREEN}TELEGRAM BOT CONFIGURATION{C_RESET}")
+        print(f"{C_DIM}{'=' * 65}{C_RESET}")
+        for a in agents:
+            tok = mask_token(a.telegram_bot_token or "")
+            print(f"  Agent: {C_BOLD}{a.name:<12}{C_RESET} Token: {tok}  Server Port: {a.port}")
+        print(f"{C_DIM}{'=' * 65}{C_RESET}")
+        print(f"Run '{C_BOLD}sheprd telegram run{C_RESET}' to run workers in the foreground,")
+        print(f"or '{C_BOLD}sheprd web{C_RESET}' to run both Web UI and all Telegram workers.\n")
+    elif sub == "run":
+        import asyncio
+        print(f"{C_BRIGHT_GREEN}[TELEGRAM]{C_RESET} Starting Telegram bot workers...")
+        async def _run_loop():
+            mgr = TelegramServiceManager(db)
+            await mgr.sync_all()
+            print(f"{C_GREEN}[TELEGRAM]{C_RESET} Polling active. Press Ctrl+C to stop.")
+            try:
+                while True:
+                    await asyncio.sleep(3600)
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                print(f"\n{C_CYAN}[TELEGRAM]{C_RESET} Shutting down Telegram workers...")
+                await mgr.stop_all()
+        try:
+            asyncio.run(_run_loop())
+        except KeyboardInterrupt:
+            pass
 
 
 def cmd_stop(args):
@@ -250,6 +296,11 @@ def main():
     p_dl = subparsers.add_parser("download", help="Download starter model or Hugging Face GGUF")
     p_dl.add_argument("model", help="Starter key (qwen2.5-0.5b, smollm2-135m, llama-3.2-1b) or GGUF URL")
     p_dl.set_defaults(func=cmd_download)
+
+    # telegram
+    p_tg = subparsers.add_parser("telegram", aliases=["tg"], help="Manage Telegram bot workers")
+    p_tg.add_argument("action", nargs="?", default="status", choices=["status", "run"], help="Action (status, run)")
+    p_tg.set_defaults(func=cmd_telegram)
 
     # remove
     p_rm = subparsers.add_parser("remove", aliases=["rm", "delete"], help="Delete agent and launcher")

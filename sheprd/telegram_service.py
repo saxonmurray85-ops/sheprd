@@ -31,6 +31,8 @@ class TelegramBotWorker:
         self.task: Optional[asyncio.Task] = None
         self.chat_contexts: Dict[int, List[Dict[str, str]]] = {}
 
+        self.bot_username: str = "Unknown"
+
     def get_agent(self) -> Optional[AgentRecord]:
         return self.db.get_agent_by_name(self.agent_name)
 
@@ -77,8 +79,8 @@ class TelegramBotWorker:
                         self.running = False
                         return
                     me_data = await resp.json()
-                    bot_username = me_data.get("result", {}).get("username", "Unknown")
-                    logger.info("Sheprd Telegram connected: @%s for agent %s", bot_username, self.agent_name)
+                    self.bot_username = me_data.get("result", {}).get("username", "Unknown")
+                    logger.info("Sheprd Telegram connected: @%s for agent %s", self.bot_username, self.agent_name)
             except Exception as e:
                 clean_err = sanitize_log_text(str(e), [token])
                 logger.error("Error connecting to Telegram for %s: %s", self.agent_name, clean_err)
@@ -110,7 +112,7 @@ class TelegramBotWorker:
     async def _handle_update(
         self, session: aiohttp.ClientSession, base_url: str, update: Dict[str, Any], token: str
     ) -> None:
-        message = update.get("message", {})
+        message = update.get("message") or update.get("edited_message", {})
         chat_id = message.get("chat", {}).get("id")
         text = (message.get("text") or "").strip()
 
@@ -121,10 +123,19 @@ class TelegramBotWorker:
         if not agent:
             return
 
+        # Strip bot username mention if present in group or direct chat (@username)
+        if self.bot_username and self.bot_username != "Unknown":
+            text = re.sub(rf"@{re.escape(self.bot_username)}\b", "", text, flags=re.IGNORECASE).strip()
+
         # S3: Check Telegram chat/user allowlist if configured
         user_info = message.get("from", {})
         user_id = user_info.get("id")
         username = user_info.get("username", "")
+
+        logger.info(
+            "Telegram incoming message for agent '%s' from user_id=%s username=@%s: %s",
+            self.agent_name, user_id, username, text[:60]
+        )
 
         allowed_users_env = os.environ.get("SHEPRD_TELEGRAM_ALLOWED_USERS", "").strip()
         if allowed_users_env:
@@ -149,7 +160,8 @@ class TelegramBotWorker:
 
         # Commands
         if text.startswith("/"):
-            cmd = text.split()[0].lower()
+            raw_cmd = text.split()[0].lower()
+            cmd = raw_cmd.split("@")[0]
             if cmd == "/start":
                 welcome = (
                     f"👋 Hello! I am *{agent.name}*.\n\n"
@@ -219,9 +231,39 @@ class TelegramBotWorker:
                         f"⚠️ Local inference server returned status {resp.status}. Is the model loaded?",
                     )
         except Exception as e:
+            logger.error("Error forwarding message to agent %s llama-server: %s", agent.name, e)
             await self._send_message(
                 session, base_url, chat_id, f"⚠️ Failed to reach local agent server: {e}"
             )
+
+    async def _send_single_message(
+        self,
+        session: aiohttp.ClientSession,
+        base_url: str,
+        chat_id: int,
+        text: str,
+        parse_mode: Optional[str] = None,
+    ) -> bool:
+        payload: Dict[str, Any] = {"chat_id": chat_id, "text": text}
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
+        try:
+            async with session.post(f"{base_url}/sendMessage", json=payload, timeout=15) as resp:
+                if resp.status == 200:
+                    return True
+                err_text = await resp.text()
+                logger.warning(
+                    "Telegram sendMessage failed for %s (status %d): %s",
+                    self.agent_name, resp.status, err_text[:200]
+                )
+                # Fallback to plain text if markdown parsing failed (HTTP 400)
+                if parse_mode and resp.status == 400:
+                    payload.pop("parse_mode", None)
+                    async with session.post(f"{base_url}/sendMessage", json=payload, timeout=15) as fallback_resp:
+                        return fallback_resp.status == 200
+        except Exception as e:
+            logger.error("Error posting to Telegram for %s: %s", self.agent_name, e)
+        return False
 
     async def _send_message(
         self,
@@ -231,19 +273,16 @@ class TelegramBotWorker:
         text: str,
         parse_mode: Optional[str] = None,
     ) -> None:
-        payload: Dict[str, Any] = {"chat_id": chat_id, "text": text}
-        if parse_mode:
-            payload["parse_mode"] = parse_mode
-        try:
-            await session.post(f"{base_url}/sendMessage", json=payload, timeout=10)
-        except Exception:
-            # Fallback without markdown if markdown parsing failed
-            if parse_mode:
-                payload.pop("parse_mode", None)
-                try:
-                    await session.post(f"{base_url}/sendMessage", json=payload, timeout=10)
-                except Exception:
-                    pass
+        if not text:
+            return
+        # Telegram has a 4096-character limit per message
+        max_chunk = 4000
+        if len(text) <= max_chunk:
+            await self._send_single_message(session, base_url, chat_id, text, parse_mode=parse_mode)
+        else:
+            chunks = [text[i : i + max_chunk] for i in range(0, len(text), max_chunk)]
+            for chunk in chunks:
+                await self._send_single_message(session, base_url, chat_id, chunk, parse_mode=None)
 
     async def _send_chat_action(
         self, session: aiohttp.ClientSession, base_url: str, chat_id: int, action: str
