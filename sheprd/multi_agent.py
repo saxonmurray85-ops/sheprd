@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from .database import AgentRecord, Database
+from .prompts import build_agent_system_prompt
 from .security import SecurityError
 
 
@@ -58,14 +59,7 @@ class MultiAgentRouter:
                 f"Agent '{target_agent_name}' is not currently running (status: {target.status}). Start it first."
             )
 
-        system_prompt = (
-            f"You are {target.name}.\n"
-            f"IDENTITY: {target.identity}\n"
-            f"PERSONALITY: {target.personality}\n"
-            f"PRIMARY JOB: {target.job}\n\n"
-            f"You have received a delegated request from peer agent '{caller_name}'. "
-            f"Provide an expert, professional response fulfilling your specific role."
-        )
+        system_prompt = build_agent_system_prompt(target, caller_name=caller_name)
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -111,21 +105,33 @@ class MultiAgentRouter:
         group_name: str,
         caller_name: str,
         prompt: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         """
         Broadcasts a task to all callable agents belonging to a specified group.
+        Returns results from active agents and explicit skipped records for
+        inactive agents (due to LRU capacity) or non-callable agents.
         """
         agents = self.db.list_agents()
-        group_members = [
-            a for a in agents
-            if group_name in a.groups and a.callable_by_agents and a.status == "running"
-        ]
-
-        if not group_members:
-            return []
+        group_members = [a for a in agents if group_name in a.groups]
 
         results = []
+        skipped = []
+
         for member in group_members:
+            if not member.callable_by_agents:
+                skipped.append({
+                    "name": member.name,
+                    "reason": "external calls disabled (callable_by_agents is False)",
+                })
+                continue
+
+            if member.status != "running":
+                skipped.append({
+                    "name": member.name,
+                    "reason": "not active (LRU cap — raise SHEPRD_MAX_ACTIVE_MODELS to run concurrently)",
+                })
+                continue
+
             try:
                 res = self.call_agent(member.name, caller_name, prompt)
                 results.append(res)
@@ -136,7 +142,11 @@ class MultiAgentRouter:
                     "caller": caller_name,
                     "error": str(e),
                 })
-        return results
+
+        return {
+            "results": results,
+            "skipped": skipped,
+        }
 
     def sync_with_agent_hub(self) -> bool:
         """

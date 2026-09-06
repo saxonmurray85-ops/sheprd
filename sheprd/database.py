@@ -43,6 +43,7 @@ class AgentRecord:
     created_at: str
     updated_at: str
     tools: List[str] = field(default_factory=lambda: list(DEFAULT_CORE_TOOLS))
+    last_used_at: Optional[str] = None
 
     def to_dict(self, mask_secrets: bool = True) -> Dict[str, Any]:
         d = asdict(self)
@@ -103,6 +104,7 @@ class Database:
                 groups TEXT NOT NULL DEFAULT 'default',
                 status TEXT NOT NULL DEFAULT 'stopped',
                 pid INTEGER DEFAULT NULL,
+                last_used_at TEXT DEFAULT NULL,
                 created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
                 updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
             );
@@ -151,6 +153,10 @@ class Database:
                 default_tools_json = json.dumps(DEFAULT_CORE_TOOLS)
                 conn.execute(f"ALTER TABLE agents ADD COLUMN tools TEXT NOT NULL DEFAULT '{default_tools_json}';")
 
+            # Schema migration: check if 'last_used_at' exists in agents
+            if "last_used_at" not in agent_cols:
+                conn.execute("ALTER TABLE agents ADD COLUMN last_used_at TEXT DEFAULT NULL;")
+
             # Schema migration: check if 'cached_tools' exists in mcp_servers
             mcp_cols = [c["name"] for c in conn.execute("PRAGMA table_info(mcp_servers)").fetchall()]
             if "cached_tools" not in mcp_cols:
@@ -192,8 +198,8 @@ class Database:
                     name, identity, personality, job, model_path, model_architecture,
                     port, context_size, n_gpu_layers, threads, template_kind,
                     telegram_enabled, telegram_bot_token, callable_by_agents,
-                    groups, tools, status, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'stopped', ?, ?)
+                    groups, tools, last_used_at, status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'stopped', ?, ?)
                 """,
                 (
                     clean_name,
@@ -212,6 +218,7 @@ class Database:
                     1 if callable_by_agents else 0,
                     group_str,
                     tools_json,
+                    now,
                     now,
                     now,
                 ),
@@ -235,6 +242,12 @@ class Database:
         with self._conn() as conn:
             rows = conn.execute("SELECT * FROM agents ORDER BY id ASC").fetchall()
             return [self._row_to_agent(r) for r in rows]
+
+    def touch_agent_last_used(self, name: str) -> None:
+        """Updates last_used_at timestamp for cross-process LRU tracking."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._conn() as conn:
+            conn.execute("UPDATE agents SET last_used_at = ? WHERE name = ?", (now, name.strip()))
 
     def update_agent_status(self, name: str, status: str, pid: Optional[int] = None) -> None:
         with self._conn() as conn:
@@ -439,6 +452,7 @@ class Database:
                 tools_list = json.loads(row["tools"])
             except Exception:
                 pass
+        last_used = row["last_used_at"] if "last_used_at" in row.keys() else None
         return AgentRecord(
             id=row["id"],
             name=row["name"],
@@ -461,4 +475,5 @@ class Database:
             created_at=row["created_at"],
             updated_at=row["updated_at"],
             tools=tools_list,
+            last_used_at=last_used,
         )

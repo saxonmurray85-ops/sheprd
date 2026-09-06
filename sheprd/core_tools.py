@@ -207,7 +207,15 @@ def tool_wikipedia_search(query: str) -> str:
 
 
 def _is_safe_public_url(url: str) -> Tuple[bool, str]:
-    """Validates that a URL does not resolve to private, loopback, link-local or cloud metadata IP."""
+    """
+    Validates that a URL does not resolve to private, loopback, link-local or cloud metadata IP.
+    
+    Security note: A theoretical time-of-check to time-of-use (TOCTOU) DNS rebinding window
+    exists between this pre-flight socket.getaddrinfo check and the subsequent urllib request,
+    if an attacker controls an authoritative nameserver that returns a public IP initially and
+    a private/loopback IP with 0s TTL immediately thereafter. In zero-trust environments,
+    an egress firewall or forward proxy should provide strict perimeter defense.
+    """
     try:
         parsed = urllib.parse.urlparse(url)
         if parsed.scheme not in ("http", "https"):

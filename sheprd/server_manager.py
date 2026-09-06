@@ -5,6 +5,7 @@ graceful shutdown, and log auditing.
 """
 
 from collections import OrderedDict
+import fcntl
 import logging
 import os
 import signal
@@ -31,6 +32,9 @@ class ServerManager:
         self.bin_path = bin_path or DEFAULT_BIN_PATH
         self.logs_dir = LOGS_DIR
         self.logs_dir.mkdir(parents=True, exist_ok=True)
+        self.locks_dir = getattr(self.db, "db_path", Path.home() / ".local/share/sheprd/sheprd.db").parent / "locks"
+        self.locks_dir.mkdir(parents=True, exist_ok=True)
+        self.swap_lock_path = self.locks_dir / "swap.lock"
         self._running_processes: Dict[str, subprocess.Popen] = {}
         # Model Hot-Swapping configuration: maximum concurrent loaded models in RAM/VRAM
         self.max_active_models = int(os.environ.get("SHEPRD_MAX_ACTIVE_MODELS", "1"))
@@ -107,51 +111,61 @@ class ServerManager:
         Hot-Swapping Engine: Ensures that the requested agent's model is loaded and ready.
         If loading this agent would exceed max_active_models (default: 1), gracefully
         evicts the least recently used running agent model to free GPU VRAM and system memory.
+        Uses fcntl file locking for cross-process mutual exclusion and persists last_used_at.
         """
-        agent = self.db.get_agent_by_name(agent_name)
-        if not agent:
-            return False, f"Agent '{agent_name}' not found."
+        with open(self.swap_lock_path, "a+") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                agent = self.db.get_agent_by_name(agent_name)
+                if not agent:
+                    return False, f"Agent '{agent_name}' not found."
 
-        # 1. Check if already healthy
-        if agent.pid and self._verify_process_is_llama(agent.pid, agent.port) and self.check_health(agent.port):
-            self._touch_lru(agent_name)
-            return True, f"Agent '{agent_name}' is already running and ready."
+                # 1. Check if already healthy
+                if agent.pid and self._verify_process_is_llama(agent.pid, agent.port) and self.check_health(agent.port):
+                    self._touch_lru(agent_name)
+                    self.db.touch_agent_last_used(agent_name)
+                    return True, f"Agent '{agent_name}' is already running and ready."
 
-        # 2. Reconcile currently active models
-        running_agents = self.get_active_agents()
-        if agent_name in running_agents:
-            running_agents.remove(agent_name)
+                # 2. Reconcile currently active models
+                running_agents = self.get_active_agents()
+                if agent_name in running_agents:
+                    running_agents.remove(agent_name)
 
-        # 3. Evict oldest model(s) if at or above capacity limit
-        while len(running_agents) >= self.max_active_models:
-            evict_candidate = None
-            for candidate in list(self._active_lru.keys()):
-                if candidate in running_agents and candidate != agent_name:
-                    evict_candidate = candidate
-                    break
+                # 3. Evict oldest model(s) if at or above capacity limit
+                while len(running_agents) >= self.max_active_models:
+                    candidates = []
+                    for r_name in running_agents:
+                        r_agent = self.db.get_agent_by_name(r_name)
+                        ts = (r_agent.last_used_at or r_agent.updated_at or r_agent.created_at or "") if r_agent else ""
+                        candidates.append((ts, r_name))
+                    candidates.sort(key=lambda x: x[0])
+                    evict_candidate = candidates[0][1] if candidates else None
 
-            if not evict_candidate and running_agents:
-                evict_candidate = running_agents[0]
+                    if evict_candidate:
+                        logger.info(
+                            "[HOT-SWAP] Evicting model for agent '%s' to free VRAM/RAM for '%s' (max active: %d)...",
+                            evict_candidate, agent_name, self.max_active_models
+                        )
+                        self.stop_agent_server(evict_candidate)
+                        self._active_lru.pop(evict_candidate, None)
+                        if evict_candidate in running_agents:
+                            running_agents.remove(evict_candidate)
+                    else:
+                        break
 
-            if evict_candidate:
-                logger.info(
-                    "[HOT-SWAP] Evicting model for agent '%s' to free VRAM/RAM for '%s' (max active: %d)...",
-                    evict_candidate, agent_name, self.max_active_models
-                )
-                self.stop_agent_server(evict_candidate)
-                self._active_lru.pop(evict_candidate, None)
-                if evict_candidate in running_agents:
-                    running_agents.remove(evict_candidate)
-            else:
-                break
-
-        # 4. Start the target agent
-        ok, msg = self.start_agent_server(agent_name, timeout_sec=timeout_sec)
-        if ok:
-            self._touch_lru(agent_name)
-            logger.info("[HOT-SWAP] Successfully loaded model for agent '%s' on port %d.", agent_name, agent.port)
-            return True, f"Model swapped: agent '{agent_name}' is now active."
-        return False, msg
+                # 4. Start the target agent
+                ok, msg = self.start_agent_server(agent_name, timeout_sec=timeout_sec)
+                if ok:
+                    self._touch_lru(agent_name)
+                    self.db.touch_agent_last_used(agent_name)
+                    logger.info("[HOT-SWAP] Successfully loaded model for agent '%s' on port %d.", agent_name, agent.port)
+                    return True, f"Model swapped: agent '{agent_name}' is now active."
+                return False, msg
+            finally:
+                try:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                except Exception:
+                    pass
 
     def start_agent_server(self, agent_name: str, timeout_sec: int = 30) -> Tuple[bool, str]:
         """
@@ -166,6 +180,7 @@ class ServerManager:
         if agent.pid and self._is_pid_alive(agent.pid):
             if self.check_health(agent.port):
                 self.db.update_agent_status(agent_name, "running", agent.pid)
+                self.db.touch_agent_last_used(agent_name)
                 return True, f"Agent '{agent_name}' is already running on port {agent.port}."
 
         log_file_path = self.logs_dir / f"{agent_name}.log"
@@ -229,6 +244,7 @@ class ServerManager:
 
             if ready:
                 self.db.update_agent_status(agent_name, "running", proc.pid)
+                self.db.touch_agent_last_used(agent_name)
                 return True, f"Agent '{agent_name}' started successfully on port {agent.port} (PID {proc.pid})."
             else:
                 self.stop_agent_server(agent_name)

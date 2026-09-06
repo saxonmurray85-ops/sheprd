@@ -573,6 +573,159 @@ class TestHardeningAndHotSwap(unittest.TestCase):
                 imported_again = sync_external_client_configs(self.db)
                 self.assertEqual(len(imported_again), 0)
 
+    def test_query_group_skipped_agents(self):
+        # Create agents in a group:
+        # active_worker: running, callable
+        # disabled_worker: running, but callable_by_agents=False
+        # idle_worker: stopped, callable_by_agents=True
+        self.db.create_agent(
+            name="active_worker",
+            identity="Worker 1",
+            personality="Energetic",
+            job="Work",
+            model_path="/tmp/m1.gguf",
+            model_architecture="qwen2",
+            port=8110,
+            callable_by_agents=True,
+            groups=["swarm_test"],
+        )
+        self.db.update_agent_status("active_worker", "running", 1001)
+
+        self.db.create_agent(
+            name="disabled_worker",
+            identity="Worker 2",
+            personality="Quiet",
+            job="Work",
+            model_path="/tmp/m2.gguf",
+            model_architecture="qwen2",
+            port=8111,
+            callable_by_agents=False,
+            groups=["swarm_test"],
+        )
+        self.db.update_agent_status("disabled_worker", "running", 1002)
+
+        self.db.create_agent(
+            name="idle_worker",
+            identity="Worker 3",
+            personality="Sleepy",
+            job="Work",
+            model_path="/tmp/m3.gguf",
+            model_architecture="qwen2",
+            port=8112,
+            callable_by_agents=True,
+            groups=["swarm_test"],
+        )
+        self.db.update_agent_status("idle_worker", "stopped", None)
+
+        router = MultiAgentRouter(self.db)
+        router.call_agent = lambda target, caller, prompt: {"ok": True, "target_agent": target, "response": f"Reply from {target}"}
+
+        out = router.query_group("swarm_test", "coordinator", "Hello team")
+        self.assertIsInstance(out, dict)
+        self.assertIn("results", out)
+        self.assertIn("skipped", out)
+
+        res = out["results"]
+        skipped = out["skipped"]
+
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0]["target_agent"], "active_worker")
+
+        self.assertEqual(len(skipped), 2)
+        skipped_map = {s["name"]: s["reason"] for s in skipped}
+        self.assertIn("disabled_worker", skipped_map)
+        self.assertIn("callable_by_agents is False", skipped_map["disabled_worker"])
+        self.assertIn("idle_worker", skipped_map)
+        self.assertIn("LRU cap", skipped_map["idle_worker"])
+
+    def test_cross_process_lru_last_used_timestamp(self):
+        from sheprd.server_manager import ServerManager
+
+        self.db.create_agent(
+            name="lru_one",
+            identity="Agent 1",
+            personality="A",
+            job="J1",
+            model_path="/tmp/m1.gguf",
+            model_architecture="qwen2",
+            port=8120,
+        )
+        self.db.create_agent(
+            name="lru_two",
+            identity="Agent 2",
+            personality="B",
+            job="J2",
+            model_path="/tmp/m2.gguf",
+            model_architecture="qwen2",
+            port=8121,
+        )
+
+        mgr = ServerManager(self.db)
+        mgr.max_active_models = 1
+
+        evicted = []
+        def mock_start(name, *args, **kwargs):
+            self.db.update_agent_status(name, "running", 5001)
+            self.db.touch_agent_last_used(name)
+            return True, f"Started {name}"
+
+        def mock_stop(name, *args, **kwargs):
+            evicted.append(name)
+            self.db.update_agent_status(name, "stopped", None)
+            return True, f"Stopped {name}"
+
+        mgr.start_agent_server = mock_start
+        mgr.stop_agent_server = mock_stop
+        mgr.check_health = lambda port: True
+        mgr._verify_process_is_llama = lambda pid, port: True
+
+        # Activate agent 1
+        mgr.ensure_agent_running("lru_one")
+        rec1 = self.db.get_agent_by_name("lru_one")
+        self.assertIsNotNone(rec1.last_used_at)
+        self.assertTrue(mgr.swap_lock_path.exists())
+
+        # Activate agent 2: should evict agent 1 because it's the oldest
+        mgr.ensure_agent_running("lru_two")
+        self.assertIn("lru_one", evicted)
+        rec2 = self.db.get_agent_by_name("lru_two")
+        self.assertIsNotNone(rec2.last_used_at)
+
+    def test_get_history_limit_clamping(self):
+        self.db.create_agent(
+            name="hist_bot",
+            identity="H",
+            personality="P",
+            job="J",
+            model_path="/tmp/fake.gguf",
+            model_architecture="qwen2",
+            port=8130,
+        )
+        for i in range(10):
+            self.db.log_chat("hist_bot", "user", f"msg {i}")
+
+        def parse_limit(raw_val):
+            try:
+                return max(1, min(int(raw_val), 200))
+            except (ValueError, TypeError):
+                return 50
+
+        self.assertEqual(parse_limit("5"), 5)
+        self.assertEqual(parse_limit("99999"), 200)
+        self.assertEqual(parse_limit("-10"), 1)
+        self.assertEqual(parse_limit("invalid"), 50)
+        self.assertEqual(parse_limit(None), 50)
+
+    def test_cmd_mcp_add_security_error_handling(self):
+        from unittest.mock import patch
+        from io import StringIO
+        from sheprd.cli import main
+
+        with patch("sys.argv", ["sheprd", "mcp", "add", "bad;name", "uvx", "mcp-server-git"]), \
+             patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+            main()
+            self.assertIn("Invalid MCP server name", mock_stdout.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

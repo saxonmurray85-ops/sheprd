@@ -65,6 +65,10 @@ Available curated starter models:
 - `llama-3.2-1b` (1.3 GB) — Compact meta model
 - `qwen2.5-coder-1.5b` (1.1 GB) — Specialized coding agent
 
+> [!TIP]
+> **Recommended Models for Autonomous Tool Calling:**
+> While compact models (<1.5B) run fast on low-spec hardware, reliable tool calling (invoking weather, search, calculations, and MCP plugins) requires models with **3B+ parameters** tuned for instruction following and function calling (such as `Qwen2.5-3B-Instruct`, `Llama-3.2-3B-Instruct`, `Mistral-7B-Instruct`, or `Qwen2.5-Coder-7B`). Models below 1.5B often lack the structural adherence to reliably generate valid JSON tool calls.
+
 ### 2. Inspect Any GGUF Model
 
 Sheprd reads binary headers in milliseconds to determine layer count, context length, architecture, and optimal GPU offload:
@@ -225,6 +229,16 @@ Sheprd implements defense-in-depth across all system boundaries:
 | `sheprd telegram run` | Run foreground standalone Telegram bot worker |
 | `sheprd logs <name>` | View recent server logs |
 | `sheprd remove <name>` | Delete an agent and uninstall its Herdr launcher |
+
+---
+
+## ⚙️ Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `SHEPRD_MAX_ACTIVE_MODELS` | `1` | Maximum concurrent `llama-server` instances kept loaded in RAM/VRAM. When exceeded, the least recently used model is automatically stopped. Increase this on multi-GPU setups. |
+| `SHEPRD_TELEGRAM_ALLOWED_USERS` | *(none / open)* | Comma-separated list of allowed Telegram usernames or user IDs (e.g. `user1,12345678`). Restricts remote bot access. |
+| `SHEPRD_HOME` | `~/.local/share/sheprd` | Root directory for Sheprd databases, logs, binaries, and lockfiles. |
 
 ---
 

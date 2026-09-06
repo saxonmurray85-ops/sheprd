@@ -32,11 +32,11 @@ from ..security import (
 )
 from ..mcp_smithery import (
     FEATURED_MCP_CATALOG,
-    ensure_claude_desktop_config_exists,
     parse_mcp_install_string,
     search_smithery_registry,
     sync_external_client_configs,
 )
+from ..prompts import build_agent_system_prompt
 from ..server_manager import ServerManager
 from ..telegram_service import TelegramServiceManager
 from ..tool_hub import ToolHub
@@ -64,8 +64,6 @@ class SheprdWebApp:
     async def _on_startup(self, app: web.Application) -> None:
         logger.info("Sheprd web app starting: syncing all active Telegram bots...")
         await self.telegram_mgr.sync_all()
-        # Initialize Claude Desktop config path for Smithery CLI installs
-        await asyncio.to_thread(ensure_claude_desktop_config_exists)
         # Auto-sync any existing external client configs (Claude/Cursor/Smithery)
         await asyncio.to_thread(sync_external_client_configs, self.db)
 
@@ -447,7 +445,11 @@ class SheprdWebApp:
         agent = self.db.get_agent_by_name(name)
         if not agent:
             return web.json_response({"error": f"Agent '{name}' not found."}, status=404)
-        limit = int(request.query.get("limit", 50))
+        raw_limit = request.query.get("limit", "50")
+        try:
+            limit = max(1, min(int(raw_limit), 200))
+        except (ValueError, TypeError):
+            limit = 50
         history = await asyncio.to_thread(self.db.get_chat_history, name, limit=limit)
         return web.json_response({"agent": name, "history": history})
 
@@ -472,14 +474,7 @@ class SheprdWebApp:
             return web.json_response({"error": "Prompt cannot be empty."}, status=400)
 
         history = data.get("history", [])
-
-        system_prompt = (
-            f"You are {agent.name}.\n"
-            f"IDENTITY: {agent.identity}\n"
-            f"PERSONALITY: {agent.personality}\n"
-            f"PRIMARY JOB: {agent.job}\n\n"
-            f"Respond clearly and stay faithful to your identity and task."
-        )
+        system_prompt = build_agent_system_prompt(agent)
 
         messages = [{"role": "system", "content": system_prompt}]
         messages.extend(history[-20:])  # Cap at last 20 messages (N13)
@@ -759,11 +754,14 @@ class SheprdWebApp:
         if not prompt:
             return web.json_response({"error": "Prompt cannot be empty."}, status=400)
 
-        results = await asyncio.to_thread(self.router.query_group, group_name, caller, prompt)
+        out = await asyncio.to_thread(self.router.query_group, group_name, caller, prompt)
+        results = out.get("results", []) if isinstance(out, dict) else out
+        skipped = out.get("skipped", []) if isinstance(out, dict) else []
         return web.json_response({
             "group": group_name,
             "caller": caller,
             "results": results,
+            "skipped": skipped,
         })
 
     async def handle_sse_events(self, request: web.Request) -> web.StreamResponse:

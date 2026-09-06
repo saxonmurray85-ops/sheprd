@@ -635,11 +635,24 @@ async function promptGroupBroadcast(groupName) {
     });
     const data = await res.json();
     const results = data.results || [];
+    const skipped = data.skipped || [];
     
     let summary = `Broadcast Results for [${groupName}]:\n\n`;
-    results.forEach(r => {
-      summary += `--- Agent ${r.target_agent} ---\n${r.response || r.error}\n\n`;
-    });
+    if (results.length > 0) {
+      results.forEach(r => {
+        summary += `--- Agent ${r.target_agent} ---\n${r.response || r.error}\n\n`;
+      });
+    } else {
+      summary += `(No active agents responded)\n\n`;
+    }
+
+    if (skipped.length > 0) {
+      summary += `--- Skipped Agents (${skipped.length}) ---\n`;
+      skipped.forEach(s => {
+        summary += `• ${s.name}: ${s.reason}\n`;
+      });
+      summary += `\nTip: To run multiple agents concurrently, set SHEPRD_MAX_ACTIVE_MODELS=N in your environment.\n`;
+    }
     alert(summary);
   } catch (err) {
     showToast(`Broadcast failed: ${err}`);
@@ -1083,6 +1096,16 @@ async function triggerSmitherySearch() {
       return;
     }
 
+    if (!resultsContainer._hasDelegatedListener) {
+      resultsContainer._hasDelegatedListener = true;
+      resultsContainer.addEventListener("click", (e) => {
+        const btn = e.target.closest(".smithery-install-btn");
+        if (!btn) return;
+        const snippet = btn.dataset.snippet;
+        if (snippet) installSmitheryResult(snippet);
+      });
+    }
+
     resultsContainer.innerHTML = `
       <div class="smithery-search-container">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
@@ -1091,7 +1114,7 @@ async function triggerSmitherySearch() {
         </div>
         <div class="featured-mcp-grid">
           ${results.map(r => {
-            const installTarget = r.command || r.installSnippet || r.qualifiedName || r.name;
+            const installTarget = r.installSnippet || (r.qualifiedName ? `npx -y @smithery/cli run ${r.qualifiedName}` : r.command || r.name);
             return `
             <div class="featured-mcp-card" style="border-color: var(--accent-cyan);">
               <div>
@@ -1106,7 +1129,7 @@ async function triggerSmitherySearch() {
               </div>
               <div class="featured-mcp-bottom">
                 <span style="font-size: 10px; color: var(--text-dim); font-family: var(--font-mono);">${escapeHtml(installTarget.substring(0, 24))}</span>
-                <button class="btn btn-primary" onclick="installSmitheryResult('${escapeHtml(installTarget)}')" style="padding: 4px 10px; font-size: 11px;">⚡ Install</button>
+                <button class="btn btn-primary smithery-install-btn" data-snippet="${escapeHtml(installTarget)}" style="padding: 4px 10px; font-size: 11px;">⚡ Install</button>
               </div>
             </div>
           `;

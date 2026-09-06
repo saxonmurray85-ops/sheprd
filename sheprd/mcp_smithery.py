@@ -326,27 +326,30 @@ def sync_external_client_configs(db: Database) -> List[Dict[str, Any]]:
             data = json.loads(content)
             mcp_servers = data.get("mcpServers", {})
             for srv_name, srv_cfg in mcp_servers.items():
-                clean_name = re.sub(r"[^a-zA-Z0-9_-]", "_", srv_name).strip("_")
-                clean_name = validate_agent_name(clean_name)
-                cmd = srv_cfg.get("command")
-                if not cmd:
-                    continue
-                args = srv_cfg.get("args", [])
-                env = srv_cfg.get("env", {})
-                desc = f"Imported from {p.parent.name} ({p.name})"
+                try:
+                    clean_name = re.sub(r"[^a-zA-Z0-9_-]", "_", srv_name).strip("_")
+                    clean_name = validate_agent_name(clean_name)
+                    cmd = srv_cfg.get("command")
+                    if not cmd:
+                        continue
+                    args = srv_cfg.get("args", [])
+                    env = srv_cfg.get("env", {})
+                    desc = f"Imported from {p.parent.name} ({p.name})"
 
-                if clean_name not in existing_servers:
-                    created = db.create_mcp_server(
-                        name=clean_name,
-                        command=cmd,
-                        args=args,
-                        env=env,
-                        enabled=True,
-                        description=desc,
-                    )
-                    existing_servers[clean_name] = created
-                    imported.append(created)
-                    logger.info("Auto-synced MCP server '%s' from %s", clean_name, p)
+                    if clean_name not in existing_servers:
+                        created = db.create_mcp_server(
+                            name=clean_name,
+                            command=cmd,
+                            args=args,
+                            env=env,
+                            enabled=True,
+                            description=desc,
+                        )
+                        existing_servers[clean_name] = created
+                        imported.append(created)
+                        logger.info("Auto-synced MCP server '%s' from %s", clean_name, p)
+                except Exception as srv_err:
+                    logger.debug("Could not sync server '%s' from %s: %s", srv_name, p, srv_err)
         except Exception as e:
             logger.debug("Could not parse MCP config from %s: %s", p, e)
 
@@ -365,7 +368,7 @@ def search_smithery_registry(query: str, limit: int = 8) -> List[Dict[str, Any]]
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            timeout=8,
+            timeout=25,
             check=False,
         )
         if proc.returncode != 0:

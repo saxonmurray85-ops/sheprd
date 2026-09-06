@@ -284,6 +284,35 @@ def cmd_tools(args):
     print(f"{C_DIM}{'=' * 80}{C_RESET}\n")
 
 
+def _probe_and_cache_mcp(db: Database, srv: Dict[str, Any]) -> None:
+    print(f"{C_DIM}Probing tools via stdio...{C_RESET}")
+    try:
+        from .mcp_client import MCPServerInfo
+        srv_info = MCPServerInfo(
+            id=srv["id"],
+            name=srv["name"],
+            command=srv["command"],
+            args=srv["args"],
+            env=srv["env"],
+            enabled=srv["enabled"],
+            description=srv["description"],
+        )
+        hub = ToolHub(db)
+        conn = hub.mcp_mgr.get_or_start_server(srv_info)
+        if conn:
+            discovered = conn.refresh_tools(15.0)
+            db.set_mcp_cached_tools(srv["name"], discovered)
+            if discovered:
+                tool_names = ", ".join(t["namespaced_name"] for t in discovered)
+                print(f"{C_CYAN}[DISCOVERED]{C_RESET} {len(discovered)} tool(s) ready: {C_BOLD}{tool_names}{C_RESET}")
+            else:
+                print(f"{C_DIM}Server connected. Tool schemas will be probed during agent runtime.{C_RESET}")
+        else:
+            print(f"{C_AMBER}[NOTE]{C_RESET} Server registered. Could not start stdio process.")
+    except Exception as e:
+        print(f"{C_AMBER}[NOTE]{C_RESET} Server registered. Tool probe warning: {e}")
+
+
 def cmd_mcp(args):
     db = Database()
     sub = getattr(args, "action", "list")
@@ -310,8 +339,26 @@ def cmd_mcp(args):
         name = args.name.strip()
         cmd = args.mcp_command.strip()
         cmd_args = args.extra_args or []
-        srv = db.create_mcp_server(name=name, command=cmd, args=cmd_args, description="Added via CLI")
-        print(f"{C_BRIGHT_GREEN}[SUCCESS]{C_RESET} Registered MCP server '{name}': {cmd} {' '.join(cmd_args)}")
+        try:
+            from .security import validate_agent_name
+            name = validate_agent_name(name)
+            srv = db.create_mcp_server(name=name, command=cmd, args=cmd_args, description="Added via CLI")
+            action = "Registered"
+        except SecurityError as e:
+            print(f"{C_RED}[ERROR]{C_RESET} Invalid MCP server name: {e}")
+            return
+        except Exception as e:
+            # Check if updating existing
+            existing = db.get_mcp_server(name)
+            if existing:
+                srv = db.update_mcp_server(name=name, command=cmd, args=cmd_args, description="Added via CLI", enabled=True)
+                action = "Updated"
+            else:
+                print(f"{C_RED}[ERROR]{C_RESET} Failed to register MCP server: {e}")
+                return
+
+        print(f"{C_BRIGHT_GREEN}[SUCCESS]{C_RESET} {action} MCP server '{C_BOLD}{name}{C_RESET}': {cmd} {' '.join(cmd_args)}")
+        _probe_and_cache_mcp(db, srv)
 
     elif sub == "install":
         target = " ".join(args.target).strip()
@@ -340,32 +387,7 @@ def cmd_mcp(args):
             action = "Installed"
 
         print(f"{C_BRIGHT_GREEN}[SUCCESS]{C_RESET} {action} MCP server '{C_BOLD}{name}{C_RESET}': {cmd} {' '.join(cmd_args)}")
-        print(f"{C_DIM}Probing tools via stdio...{C_RESET}")
-        try:
-            from .mcp_client import MCPServerInfo
-            srv_info = MCPServerInfo(
-                id=srv["id"],
-                name=srv["name"],
-                command=srv["command"],
-                args=srv["args"],
-                env=srv["env"],
-                enabled=srv["enabled"],
-                description=srv["description"],
-            )
-            hub = ToolHub(db)
-            conn = hub.mcp_mgr.get_or_start_server(srv_info)
-            if conn:
-                discovered = conn.refresh_tools(15.0)
-                db.set_mcp_cached_tools(name, discovered)
-                if discovered:
-                    tool_names = ", ".join(t["namespaced_name"] for t in discovered)
-                    print(f"{C_CYAN}[DISCOVERED]{C_RESET} {len(discovered)} tool(s) ready: {C_BOLD}{tool_names}{C_RESET}")
-                else:
-                    print(f"{C_DIM}Server connected. Tool schemas will be probed during agent runtime.{C_RESET}")
-            else:
-                print(f"{C_AMBER}[NOTE]{C_RESET} Server registered. Could not start stdio process.")
-        except Exception as e:
-            print(f"{C_AMBER}[NOTE]{C_RESET} Server registered. Tool probe warning: {e}")
+        _probe_and_cache_mcp(db, srv)
 
     elif sub == "sync":
         print(f"{C_DIM}Scanning Claude Desktop and Cursor configs for Smithery tools...{C_RESET}")
@@ -392,7 +414,8 @@ def cmd_mcp(args):
         print(f"{C_DIM}{'-' * 75}{C_RESET}")
         for r in results:
             desc_snip = r.get("description", "")[:24]
-            print(f"{C_BOLD}{r['name'][:23]:<24}{C_RESET} {r['command'][:24]:<25} {desc_snip}")
+            snippet = r.get("installSnippet") or r.get("command") or r.get("qualifiedName", "")
+            print(f"{C_BOLD}{r['name'][:23]:<24}{C_RESET} {snippet[:24]:<25} {desc_snip}")
         print(f"{C_DIM}{'=' * 75}{C_RESET}\n")
         print(f"Install any tool with: {C_BOLD}sheprd mcp install <command-or-url>{C_RESET}\n")
 

@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import aiohttp
 
 from .database import AgentRecord, Database
+from .prompts import build_agent_system_prompt
 from .security import mask_token, sanitize_log_text
 from .tool_hub import ToolHub
 
@@ -252,13 +253,7 @@ class TelegramBotWorker:
 
         # Query local agent server
         context = self.chat_contexts.setdefault(chat_id, [])
-        system_prompt = (
-            f"You are {agent.name}.\n"
-            f"IDENTITY: {agent.identity}\n"
-            f"PERSONALITY: {agent.personality}\n"
-            f"PRIMARY JOB: {agent.job}\n\n"
-            f"Answer thoughtfully and consistently according to your assigned character and duties."
-        )
+        system_prompt = build_agent_system_prompt(agent)
 
         messages = [{"role": "system", "content": system_prompt}]
         messages.extend(context[-20:])  # Cap at last 20 messages for context (N13)

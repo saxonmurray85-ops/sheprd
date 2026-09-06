@@ -19,6 +19,7 @@ import aiohttp
 
 from .database import AgentRecord, Database
 from .herdr_integration import HerdrIntegration
+from .prompts import build_agent_system_prompt
 from .server_manager import ServerManager
 from .tool_hub import ToolHub
 
@@ -74,17 +75,7 @@ class InteractiveChatSession:
         agent = self.agent
         if not agent:
             return "You are an AI assistant."
-        return (
-            f"You are {agent.name}.\n"
-            f"IDENTITY: {agent.identity}\n"
-            f"PERSONALITY: {agent.personality}\n"
-            f"PRIMARY JOB: {agent.job}\n\n"
-            f"Instructions:\n"
-            f"- Speak consistently in your specified identity and personality.\n"
-            f"- Stay dedicated to your assigned job.\n"
-            f"- Use your available tools whenever real-time data, calculations, or external facts are needed.\n"
-            f"- Be clear, insightful, and direct."
-        )
+        return build_agent_system_prompt(agent)
 
     async def _async_chat(self, user_text: str) -> str:
         messages = [{"role": "system", "content": self.build_system_prompt()}]
