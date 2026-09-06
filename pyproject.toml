@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sheprd"
+version = "0.1.0"
+description = "Digital Green llama.cpp agent orchestrator with Herdr workspace integration"
+readme = "README.md"
+authors = [{ name = "Sachsen", email = "sachsen@users.noreply.github.com" }]
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "aiohttp>=3.8.0",
+]
+
+[project.scripts]
+sheprd = "sheprd.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["sheprd*"]
+
+[tool.setuptools.package-data]
+sheprd = [
+    "web/templates/*.html",
+    "web/static/css/*.css",
+    "web/static/js/*.js",
+]

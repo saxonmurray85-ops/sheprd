@@ -1,0 +1,271 @@
+"""
+Command-Line Interface for Sheprd.
+Provides subcommands to start the Web UI, inspect models, manage agent lifecycles,
+spawn agents into Herdr, and initiate interactive chat sessions.
+"""
+
+import argparse
+import os
+import sys
+from pathlib import Path
+
+from .database import Database
+from .herdr_integration import HerdrIntegration
+from .inspector import analyze_model_and_recommend
+from .interactive_chat import InteractiveChatSession
+from .security import SecurityError, validate_model_path
+from .server_manager import ServerManager
+from .web.app import run_web
+
+# Terminal styling
+C_GREEN = "\033[38;5;48m"
+C_BRIGHT_GREEN = "\033[38;5;84m"
+C_RESET = "\033[0m"
+C_BOLD = "\033[1m"
+C_DIM = "\033[2m"
+C_RED = "\033[38;5;196m"
+C_CYAN = "\033[38;5;51m"
+
+
+def cmd_web(args):
+    print(f"{C_BRIGHT_GREEN}[SHEPRD]{C_RESET} Launching Digital Green Web UI at {C_BOLD}http://{args.host}:{args.port}{C_RESET}")
+    run_web(host=args.host, port=args.port)
+
+
+def cmd_list(args):
+    db = Database()
+    server_mgr = ServerManager(db)
+    agents = db.list_agents()
+
+    if not agents:
+        print(f"{C_DIM}No agents currently configured. Use 'sheprd deploy' or launch the web UI ('sheprd web').{C_RESET}")
+        return
+
+    print(f"\n{C_BOLD}{C_BRIGHT_GREEN}SHEPRD AGENT REGISTRY{C_RESET}")
+    print(f"{C_DIM}{'=' * 85}{C_RESET}")
+    header = f"{'NAME':<16} {'STATUS':<12} {'PORT':<8} {'GPU-L':<8} {'TG':<6} {'CALLABLE':<10} {'IDENTITY'}"
+    print(f"{C_BOLD}{header}{C_RESET}")
+    print(f"{C_DIM}{'-' * 85}{C_RESET}")
+
+    for a in agents:
+        is_healthy = a.status == "running" and server_mgr.check_health(a.port)
+        status_col = f"{C_BRIGHT_GREEN}ONLINE{C_RESET}" if is_healthy else f"{C_DIM}STOPPED{C_RESET}"
+        tg_col = f"{C_CYAN}YES{C_RESET}" if a.telegram_enabled else f"{C_DIM}NO{C_RESET}"
+        call_col = f"{C_GREEN}YES{C_RESET}" if a.callable_by_agents else f"{C_DIM}NO{C_RESET}"
+
+        row = (
+            f"{a.name:<16} "
+            f"{status_col:<21} "
+            f"{a.port:<8} "
+            f"{a.n_gpu_layers:<8} "
+            f"{tg_col:<15} "
+            f"{call_col:<19} "
+            f"{a.identity[:25]}"
+        )
+        print(row)
+    print(f"{C_DIM}{'=' * 85}{C_RESET}")
+    print(f"{C_DIM}Spawn in Herdr: Type '{C_BRIGHT_GREEN}<agent_name>{C_RESET}{C_DIM}' in any terminal or run 'sheprd spawn <name>'.{C_RESET}\n")
+
+
+def cmd_inspect(args):
+    try:
+        validated = validate_model_path(args.path)
+    except SecurityError as e:
+        print(f"{C_RED}[Security Error]{C_RESET} {e}")
+        sys.exit(1)
+
+    print(f"{C_GREEN}[SHEPRD]{C_RESET} Inspecting GGUF binary: {validated.name}...")
+    meta, rec = analyze_model_and_recommend(str(validated))
+
+    print(f"\n{C_BOLD}{C_BRIGHT_GREEN}MODEL METADATA{C_RESET}")
+    print(f"{C_DIM}{'-' * 45}{C_RESET}")
+    print(f"  Architecture       : {meta.architecture}")
+    print(f"  Quantization       : {meta.quantization}")
+    print(f"  Layer Count        : {meta.layer_count}")
+    print(f"  Native Context     : {meta.context_length} tokens")
+    print(f"  File Size          : {meta.file_size_gb} GB")
+    print(f"  Chat Template Kind : {meta.detected_template_kind}")
+
+    print(f"\n{C_BOLD}{C_BRIGHT_GREEN}RECOMMENDED EXECUTION PARAMETERS{C_RESET}")
+    print(f"{C_DIM}{'-' * 45}{C_RESET}")
+    print(f"  Optimal Context    : {rec.context_size}")
+    print(f"  GPU Offload Layers : {rec.n_gpu_layers}")
+    print(f"  CPU Threads        : {rec.threads}")
+    print(f"  Suggested Port     : {rec.recommended_port}")
+    if rec.summary_notes:
+        print("\n  Hardware Insights:")
+        for note in rec.summary_notes:
+            print(f"   • {note}")
+    print()
+
+
+def cmd_start(args):
+    db = Database()
+    server_mgr = ServerManager(db)
+    agent_name = args.name.strip()
+    print(f"{C_GREEN}[SHEPRD]{C_RESET} Starting server for agent '{agent_name}'...")
+    ok, msg = server_mgr.start_agent_server(agent_name)
+    if ok:
+        print(f"{C_BRIGHT_GREEN}[SUCCESS]{C_RESET} {msg}")
+    else:
+        print(f"{C_RED}[FAILED]{C_RESET} {msg}")
+        sys.exit(1)
+
+
+def cmd_stop(args):
+    db = Database()
+    server_mgr = ServerManager(db)
+    agent_name = args.name.strip()
+    ok, msg = server_mgr.stop_agent_server(agent_name)
+    print(f"{C_GREEN}[SHEPRD]{C_RESET} {msg}")
+
+
+def cmd_stop_all(args):
+    db = Database()
+    server_mgr = ServerManager(db)
+    print(f"{C_GREEN}[SHEPRD]{C_RESET} Stopping all running agent servers...")
+    server_mgr.stop_all()
+    print(f"{C_BRIGHT_GREEN}[DONE]{C_RESET} All servers halted.")
+
+
+def cmd_spawn(args):
+    agent_name = args.name.strip()
+    db = Database()
+    agent = db.get_agent_by_name(agent_name)
+    if not agent:
+        print(f"{C_RED}[ERROR]{C_RESET} Agent '{agent_name}' not found.")
+        sys.exit(1)
+
+    print(f"{C_CYAN}[HERDR]{C_RESET} Spawning agent '{agent_name}' in Herdr...")
+    ok, msg, _ = HerdrIntegration.spawn_in_herdr(agent_name, prefer_tab=not args.split)
+    if ok:
+        print(f"{C_BRIGHT_GREEN}[SUCCESS]{C_RESET} {msg}")
+    else:
+        print(f"{C_RED}[FAILED]{C_RESET} {msg}")
+        print(f"{C_DIM}Fallback: Running interactive session directly in current terminal...{C_RESET}")
+        session = InteractiveChatSession(agent_name)
+        session.run()
+
+
+def cmd_chat(args):
+    agent_name = args.name.strip()
+    session = InteractiveChatSession(agent_name)
+    session.run()
+
+
+def cmd_logs(args):
+    db = Database()
+    server_mgr = ServerManager(db)
+    agent_name = args.name.strip()
+    logs = server_mgr.get_agent_logs(agent_name, max_lines=args.lines)
+    print(logs)
+
+
+def cmd_download(args):
+    from .downloader import download_model, list_starter_models
+    preset = args.model.strip()
+    print(f"{C_BRIGHT_GREEN}[SHEPRD]{C_RESET} Starting download for: {C_BOLD}{preset}{C_RESET}...")
+
+    def on_progress(downloaded, total, speed):
+        mb_down = downloaded / (1024 * 1024)
+        mb_tot = total / (1024 * 1024) if total else 0
+        pct = (downloaded / total * 100) if total else 0
+        print(f"\r  Progress: {mb_down:.1f}MB / {mb_tot:.1f}MB ({pct:.1f}%) @ {speed:.2f} MB/s", end="", flush=True)
+
+    try:
+        path = download_model(preset, progress_hook=on_progress)
+        print(f"\n{C_BRIGHT_GREEN}[SUCCESS]{C_RESET} Model downloaded and verified at: {path}")
+    except Exception as e:
+        print(f"\n{C_RED}[ERROR]{C_RESET} Download failed: {e}")
+        sys.exit(1)
+
+
+def cmd_remove(args):
+    db = Database()
+    server_mgr = ServerManager(db)
+    agent_name = args.name.strip()
+    server_mgr.stop_agent_server(agent_name)
+    HerdrIntegration.remove_launcher(agent_name)
+    deleted = db.delete_agent(agent_name)
+    if deleted:
+        print(f"{C_GREEN}[SHEPRD]{C_RESET} Agent '{agent_name}' and Herdr launcher removed.")
+    else:
+        print(f"{C_RED}[ERROR]{C_RESET} Agent '{agent_name}' not found.")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="sheprd",
+        description="Sheprd: llama.cpp Agent Orchestrator & Herdr Workspace Integration.",
+    )
+    subparsers = parser.add_subparsers(dest="command", help="Available subcommands")
+
+    # web
+    p_web = subparsers.add_parser("web", aliases=["ui"], help="Launch Digital Green Web UI")
+    p_web.add_argument("--host", default="127.0.0.1", help="Host interface (default: 127.0.0.1)")
+    p_web.add_argument("--port", type=int, default=8765, help="Port to listen on (default: 8765)")
+    p_web.set_defaults(func=cmd_web)
+
+    # list
+    p_list = subparsers.add_parser("list", aliases=["ls"], help="List registered agents")
+    p_list.set_defaults(func=cmd_list)
+
+    # inspect
+    p_inspect = subparsers.add_parser("inspect", help="Inspect GGUF model and hardware")
+    p_inspect.add_argument("path", help="Path to GGUF file")
+    p_inspect.set_defaults(func=cmd_inspect)
+
+    # start
+    p_start = subparsers.add_parser("start", help="Start agent's llama-server")
+    p_start.add_argument("name", help="Agent name")
+    p_start.set_defaults(func=cmd_start)
+
+    # stop
+    p_stop = subparsers.add_parser("stop", help="Stop agent's llama-server")
+    p_stop.add_argument("name", help="Agent name")
+    p_stop.set_defaults(func=cmd_stop)
+
+    # stop-all
+    p_stop_all = subparsers.add_parser("stop-all", help="Stop all running agent servers")
+    p_stop_all.set_defaults(func=cmd_stop_all)
+
+    # spawn
+    p_spawn = subparsers.add_parser("spawn", help="Spawn agent in Herdr terminal workspace")
+    p_spawn.add_argument("name", help="Agent name")
+    p_spawn.add_argument("--split", action="store_true", help="Split pane instead of new tab")
+    p_spawn.set_defaults(func=cmd_spawn)
+
+    # chat
+    p_chat = subparsers.add_parser("chat", aliases=["run"], help="Interactive terminal chat session")
+    p_chat.add_argument("name", help="Agent name")
+    p_chat.set_defaults(func=cmd_chat)
+
+    # logs
+    p_logs = subparsers.add_parser("logs", help="View agent server logs")
+    p_logs.add_argument("name", help="Agent name")
+    p_logs.add_argument("-n", "--lines", type=int, default=100, help="Line count")
+    p_logs.set_defaults(func=cmd_logs)
+
+    # download
+    p_dl = subparsers.add_parser("download", help="Download starter model or Hugging Face GGUF")
+    p_dl.add_argument("model", help="Starter key (qwen2.5-0.5b, smollm2-135m, llama-3.2-1b) or GGUF URL")
+    p_dl.set_defaults(func=cmd_download)
+
+    # remove
+    p_rm = subparsers.add_parser("remove", aliases=["rm", "delete"], help="Delete agent and launcher")
+    p_rm.add_argument("name", help="Agent name")
+    p_rm.set_defaults(func=cmd_remove)
+
+    args = parser.parse_args()
+
+    if not args.command:
+        # Default action when run with no arguments: list or show help
+        cmd_list(args)
+        print("Run 'sheprd web' to open the Web UI or 'sheprd --help' for CLI commands.")
+        return
+
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sheprd // llama.cpp Agent Orchestrator</title>
+  <!-- CSRF_TOKEN -->
+  <link rel="stylesheet" href="/static/css/digital_green.css">
+</head>
+<body>
+
+  <!-- Header & System Telemetry -->
+  <header>
+    <a href="#" class="brand">
+      <span class="brand-icon">⚡</span>
+      <div>
+        <div class="brand-title">Sheprd</div>
+        <div class="brand-sub">LLAMA.CPP AGENT ORCHESTRATOR</div>
+      </div>
+    </a>
+
+    <div class="telemetry-bar">
+      <div class="telemetry-item">
+        <span>CPU:</span> <strong id="stat-cpu">AMD Ryzen (16T)</strong>
+      </div>
+      <div class="telemetry-item">
+        <span>RAM:</span> <strong id="stat-ram">Loading...</strong>
+      </div>
+      <div class="telemetry-item">
+        <span>ACCEL:</span> <strong id="stat-gpu">AMD RX 7900 XTX [VK]</strong>
+      </div>
+      <div class="telemetry-item">
+        <span>HERDR:</span> <strong id="stat-herdr">CHECKING</strong>
+      </div>
+    </div>
+  </header>
+
+  <!-- Navigation Tabs -->
+  <nav class="tabs-nav">
+    <button class="tab-btn active" data-tab="agents-tab">
+      <span>●</span> AGENTS
+    </button>
+    <button class="tab-btn" data-tab="deploy-tab">
+      <span>+</span> DEPLOY AGENT
+    </button>
+    <button class="tab-btn" data-tab="chat-tab">
+      <span>💬</span> CHAT CONSOLE
+    </button>
+    <button class="tab-btn" data-tab="groups-tab">
+      <span>👥</span> GROUPS &amp; SWARMS
+    </button>
+    <button class="tab-btn" data-tab="logs-tab">
+      <span>📜</span> SYSTEM LOGS
+    </button>
+  </nav>
+
+  <!-- Main Workspace -->
+  <main>
+
+    <!-- Tab 1: Agent Registry / Dashboard -->
+    <section id="agents-tab" class="tab-content active">
+      <div class="section-header">
+        <h2 class="section-title"><span>⚡</span> Deployed Agents</h2>
+        <button class="btn btn-primary" onclick="switchTab('deploy-tab')">+ Deploy New Agent</button>
+      </div>
+
+      <div class="agents-grid" id="agents-grid">
+        <!-- Dynamically rendered by app.js -->
+      </div>
+    </section>
+
+    <!-- Tab 2: Deploy New Agent Wizard -->
+    <section id="deploy-tab" class="tab-content">
+      <div class="section-header">
+        <h2 class="section-title"><span>+</span> Spin Up New Agent</h2>
+        <span style="font-size: 12px; color: var(--text-dim);">Enter model path; Sheprd extracts architecture and configures execution.</span>
+      </div>
+
+      <div class="form-panel">
+        <form id="create-agent-form">
+          <div class="form-grid">
+
+            <!-- Model Path Input with Auto-Inspect -->
+            <div class="form-group form-full">
+              <label for="form-model-path">GGUF Model Path (Absolute or Home-Relative)</label>
+              <div class="input-with-action">
+                <input 
+                  type="text" 
+                  id="form-model-path" 
+                  class="form-control" 
+                  placeholder="/home/sachsen/.local/share/sheprd/models/qwen2.5-0.5b-instruct-q4_k_m.gguf" 
+                  required
+                >
+                <button type="button" class="btn btn-primary" id="btn-inspect-model">
+                  🔍 Auto-Inspect Model
+                </button>
+              </div>
+              <span class="help-text">Point to any local GGUF file. Sheprd parses GGUF headers and optimizes GPU offload layers.</span>
+            </div>
+
+            <!-- Inspection Result Card (Appears after inspection) -->
+            <div class="form-full">
+              <div class="inspection-result" id="inspection-result-box">
+                <div style="font-weight: 700; color: var(--accent-green); margin-bottom: 6px;">
+                  ✓ GGUF Model Header Verified
+                </div>
+                <div class="inspection-grid">
+                  <div class="inspect-stat-card">
+                    <div class="label">Architecture</div>
+                    <div class="value" id="inspect-arch">-</div>
+                  </div>
+                  <div class="inspect-stat-card">
+                    <div class="label">Quantization</div>
+                    <div class="value" id="inspect-quant">-</div>
+                  </div>
+                  <div class="inspect-stat-card">
+                    <div class="label">Total Layers</div>
+                    <div class="value" id="inspect-layers">-</div>
+                  </div>
+                  <div class="inspect-stat-card">
+                    <div class="label">Context Length</div>
+                    <div class="value" id="inspect-ctx">-</div>
+                  </div>
+                  <div class="inspect-stat-card">
+                    <div class="label">File Size</div>
+                    <div class="value" id="inspect-size">-</div>
+                  </div>
+                  <div class="inspect-stat-card">
+                    <div class="label">Recommended GPU Offload</div>
+                    <div class="value" id="inspect-rec-gpu">-</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Quick Presets -->
+            <div class="form-full" style="margin-top: 4px;">
+              <label style="margin-bottom: 6px; display: block; font-size: 11px; color: var(--text-dim);">
+                QUICK PERSONA PRESETS:
+              </label>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button type="button" class="btn btn-secondary preset-btn" data-preset="architect">💻 Python Architect</button>
+                <button type="button" class="btn btn-secondary preset-btn" data-preset="sysadmin">🐧 Linux SysAdmin</button>
+                <button type="button" class="btn btn-secondary preset-btn" data-preset="researcher">🔬 Researcher</button>
+                <button type="button" class="btn btn-secondary preset-btn" data-preset="assistant">🐑 General Assistant</button>
+              </div>
+            </div>
+
+            <!-- Agent Name & Identity -->
+            <div class="form-group">
+              <label for="form-name">Agent Name (Herdr Command)</label>
+              <input type="text" id="form-name" class="form-control" placeholder="e.g. coder, bob, triage" pattern="^[a-zA-Z0-9_-]{1,32}$" required>
+              <span class="help-text">Used to spawn directly in Herdr or terminal: <code>~/.local/bin/&lt;name&gt;</code></span>
+            </div>
+
+            <div class="form-group">
+              <label for="form-identity">Agent Identity / Role</label>
+              <input type="text" id="form-identity" class="form-control" placeholder="e.g. Senior Security Architect" required>
+              <span class="help-text">Who the agent is and how it presents itself.</span>
+            </div>
+
+            <!-- Personality -->
+            <div class="form-group form-full">
+              <label for="form-personality">Personality &amp; Tone</label>
+              <input type="text" id="form-personality" class="form-control" placeholder="e.g. Analytical, direct, pragmatic, speaks in concise bullet points" required>
+            </div>
+
+            <!-- Job / Mission -->
+            <div class="form-group form-full">
+              <label for="form-job">Job / Mission Description</label>
+              <textarea id="form-job" class="form-control" placeholder="e.g. Perform rigorous code audits, inspect git diffs, diagnose bugs, and write unit tests." required></textarea>
+            </div>
+
+            <!-- Advanced Server Parameters -->
+            <div class="form-group">
+              <label for="form-context-size">Context Size (Tokens)</label>
+              <input type="number" id="form-context-size" class="form-control" value="8192" min="512" max="131072">
+            </div>
+
+            <div class="form-group">
+              <label for="form-gpu-layers">GPU Offload Layers (--n-gpu-layers)</label>
+              <input type="number" id="form-gpu-layers" class="form-control" value="25" min="0" max="256">
+            </div>
+
+            <div class="form-group">
+              <label for="form-threads">CPU Threads</label>
+              <input type="number" id="form-threads" class="form-control" value="8" min="1" max="64">
+            </div>
+
+            <div class="form-group">
+              <label for="form-port">Local Server Port</label>
+              <input type="number" id="form-port" class="form-control" value="8081" min="1024" max="65535">
+            </div>
+
+            <input type="hidden" id="form-template" value="chatml">
+
+            <!-- Telegram Bot Integration -->
+            <div class="form-group form-full" style="border-top: 1px solid var(--border-green); padding-top: 16px; margin-top: 8px;">
+              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                <input type="checkbox" id="form-tg-enabled" style="accent-color: var(--accent-green);">
+                <label for="form-tg-enabled" style="margin: 0; cursor: pointer;">Enable Telegram Bot Integration</label>
+              </div>
+              <input type="password" id="form-tg-token" class="form-control" placeholder="Enter Telegram Bot Token (e.g. 123456789:ABCdefGHIjklMNOpqrSTUvwxYZ)">
+              <span class="help-text">Tokens are stored securely with 0600 file permissions and never exposed in cleartext.</span>
+            </div>
+
+            <!-- Multi-Agent Coordination -->
+            <div class="form-group form-full" style="border-top: 1px solid var(--border-green); padding-top: 16px; margin-top: 8px;">
+              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                <input type="checkbox" id="form-callable" checked style="accent-color: var(--accent-green);">
+                <label for="form-callable" style="margin: 0; cursor: pointer;">Allow this agent to be called on by other agents</label>
+              </div>
+              <label for="form-groups">Agent Groups / Swarm Tags (comma-separated)</label>
+              <input type="text" id="form-groups" class="form-control" placeholder="e.g. dev, triage, research" value="default">
+              <span class="help-text">Group agents together for multi-agent swarm broadcasts or peer task delegation.</span>
+            </div>
+
+            <div class="form-full" style="margin-top: 12px; display: flex; justify-content: flex-end; gap: 12px;">
+              <button type="button" class="btn btn-secondary" onclick="switchTab('agents-tab')">Cancel</button>
+              <button type="submit" class="btn btn-primary">⚡ Create Agent &amp; Install Herdr Launcher</button>
+            </div>
+
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- Tab 3: Interactive Chat Console -->
+    <section id="chat-tab" class="tab-content">
+      <div class="chat-container">
+        <div class="chat-sidebar">
+          <div class="chat-sidebar-header">ACTIVE AGENTS</div>
+          <div class="chat-agent-list" id="chat-agent-list">
+            <!-- Rendered by JS -->
+          </div>
+        </div>
+        <div class="chat-main">
+          <div class="chat-header">
+            <div style="font-weight: 700; color: var(--accent-green);" id="chat-active-title">
+              Select an agent to begin chat
+            </div>
+            <div>
+              <span style="font-size: 11px; color: var(--text-dim);">Digital Green Console</span>
+            </div>
+          </div>
+          <div class="chat-messages" id="chat-messages">
+            <!-- Messages rendered by JS -->
+          </div>
+          <div class="chat-input-bar">
+            <input type="text" id="chat-input" class="form-control" placeholder="Type a message or @other_agent...">
+            <button class="btn btn-primary" id="chat-send-btn">Send ›</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 4: Groups & Swarms -->
+    <section id="groups-tab" class="tab-content">
+      <div class="section-header">
+        <h2 class="section-title"><span>👥</span> Multi-Agent Swarms &amp; Groups</h2>
+      </div>
+      <div id="groups-container">
+        <!-- Rendered by JS -->
+      </div>
+    </section>
+
+    <!-- Tab 5: System Logs -->
+    <section id="logs-tab" class="tab-content">
+      <div class="section-header">
+        <h2 class="section-title"><span>📜</span> llama-server Process Logs</h2>
+        <div style="display: flex; gap: 10px; align-items: center;">
+          <label style="font-size: 12px; color: var(--text-dim);">Agent:</label>
+          <select id="log-agent-select" class="form-control" onchange="fetchLogs()"></select>
+          <button class="btn btn-secondary" onclick="fetchLogs()">↻ Refresh</button>
+        </div>
+      </div>
+      <pre class="logs-console" id="logs-console">Select an agent above to view logs...</pre>
+    </section>
+
+  </main>
+
+  <!-- Notification Toasts Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
