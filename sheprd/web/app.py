@@ -635,7 +635,7 @@ class SheprdWebApp:
         try:
             data = await request.json()
             featured_id = data.get("featured_id")
-            raw_input = (data.get("input") or "").strip()
+            raw_input = (data.get("input") or data.get("raw_input") or "").strip()
             env_override = data.get("env") or {}
 
             parsed = None

@@ -388,6 +388,7 @@ def search_smithery_registry(query: str, limit: int = 8) -> List[Dict[str, Any]]
                     "useCount": item.get("useCount", 0),
                     "connectionUrl": item.get("connectionUrl", ""),
                     "installSnippet": f"npx -y @smithery/cli run {qname}",
+                    "command": f"npx -y @smithery/cli run {qname}",
                 })
                 if len(results) >= limit:
                     break

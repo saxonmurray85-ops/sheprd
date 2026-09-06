@@ -903,13 +903,25 @@ function renderMCPServers(servers) {
   }).join("");
 }
 
+async function safeJsonResponse(res) {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    if (!res.ok) {
+      throw new Error(`Server returned HTTP ${res.status}: ${text.slice(0, 120)}`);
+    }
+    throw new Error(`Invalid JSON format: ${text.slice(0, 120)}`);
+  }
+}
+
 async function loadFeaturedMCP() {
   const container = document.getElementById("featured-mcp-grid");
   if (!container) return;
   try {
     const res = await fetch("/api/mcp/featured");
     if (!res.ok) return;
-    const data = await res.json();
+    const data = await safeJsonResponse(res);
     const items = data.featured || [];
 
     container.innerHTML = items.map(item => {
@@ -949,7 +961,7 @@ async function installFeaturedMCP(id) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ featured_id: id }),
     });
-    const data = await res.json();
+    const data = await safeJsonResponse(res);
     if (res.ok && data.ok) {
       const count = data.tools ? data.tools.length : 0;
       showToast(`Installed '${data.server.name}'! Discovered ${count} tool(s).`);
@@ -958,7 +970,7 @@ async function installFeaturedMCP(id) {
       showToast(data.error || "Installation failed.", "normal");
     }
   } catch (err) {
-    showToast(`Installation error: ${err}`, "normal");
+    showToast(`Installation error: ${err.message || err}`, "normal");
   }
 }
 
@@ -984,9 +996,9 @@ async function handleQuickMCPInstall(e) {
     const res = await fetch("/api/mcp/quick-install", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ raw_input: raw }),
+      body: JSON.stringify({ raw_input: raw, input: raw }),
     });
-    const data = await res.json();
+    const data = await safeJsonResponse(res);
     if (res.ok && data.ok) {
       const count = data.tools ? data.tools.length : 0;
       showToast(`Installed '${data.server.name}'! Discovered ${count} tool(s).`);
@@ -996,7 +1008,7 @@ async function handleQuickMCPInstall(e) {
       showToast(data.error || "Quick install failed.", "normal");
     }
   } catch (err) {
-    showToast(`Quick install error: ${err}`, "normal");
+    showToast(`Quick install error: ${err.message || err}`, "normal");
   } finally {
     if (btn) {
       btn.disabled = false;
@@ -1014,7 +1026,7 @@ async function syncExternalMCPConfigs() {
   showToast("Scanning Claude Desktop and Cursor configs for Smithery tools...");
   try {
     const res = await fetch("/api/mcp/sync-external", { method: "POST" });
-    const data = await res.json();
+    const data = await safeJsonResponse(res);
     if (res.ok && data.ok) {
       showToast(data.message || "Sync complete!");
       await Promise.all([loadToolsAndMCPServers(), loadFeaturedMCP()]);
@@ -1022,7 +1034,7 @@ async function syncExternalMCPConfigs() {
       showToast(data.error || "Sync failed.", "normal");
     }
   } catch (err) {
-    showToast(`Sync error: ${err}`, "normal");
+    showToast(`Sync error: ${err.message || err}`, "normal");
   } finally {
     if (btn) {
       btn.disabled = false;
@@ -1055,7 +1067,7 @@ async function triggerSmitherySearch() {
 
   try {
     const res = await fetch(`/api/mcp/search?q=${encodeURIComponent(q)}`);
-    const data = await res.json();
+    const data = await safeJsonResponse(res);
     const results = data.results || [];
 
     if (results.length === 0) {
@@ -1078,7 +1090,9 @@ async function triggerSmitherySearch() {
           <button class="btn btn-secondary" onclick="closeSmitherySearch()" style="padding: 2px 8px; font-size: 11px;">✕ Close</button>
         </div>
         <div class="featured-mcp-grid">
-          ${results.map(r => `
+          ${results.map(r => {
+            const installTarget = r.command || r.installSnippet || r.qualifiedName || r.name;
+            return `
             <div class="featured-mcp-card" style="border-color: var(--accent-cyan);">
               <div>
                 <div class="featured-mcp-top">
@@ -1091,11 +1105,12 @@ async function triggerSmitherySearch() {
                 <div class="featured-mcp-desc">${escapeHtml(r.description || 'Smithery registered tool package.')}</div>
               </div>
               <div class="featured-mcp-bottom">
-                <span style="font-size: 10px; color: var(--text-dim); font-family: var(--font-mono);">${escapeHtml((r.command || '').substring(0, 24))}</span>
-                <button class="btn btn-primary" onclick="installSmitheryResult('${escapeHtml(r.command || r.name)}')" style="padding: 4px 10px; font-size: 11px;">⚡ Install</button>
+                <span style="font-size: 10px; color: var(--text-dim); font-family: var(--font-mono);">${escapeHtml(installTarget.substring(0, 24))}</span>
+                <button class="btn btn-primary" onclick="installSmitheryResult('${escapeHtml(installTarget)}')" style="padding: 4px 10px; font-size: 11px;">⚡ Install</button>
               </div>
             </div>
-          `).join("")}
+          `;
+          }).join("")}
         </div>
       </div>
     `;
@@ -1103,7 +1118,7 @@ async function triggerSmitherySearch() {
     resultsContainer.innerHTML = `
       <div class="smithery-search-container">
         <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span style="color: var(--accent-red); font-size: 13px;">Search error: ${escapeHtml(String(err))}</span>
+          <span style="color: var(--accent-red); font-size: 13px;">Search error: ${escapeHtml(err.message || String(err))}</span>
           <button class="btn btn-secondary" onclick="closeSmitherySearch()" style="padding: 2px 8px; font-size: 11px;">✕ Close</button>
         </div>
       </div>
