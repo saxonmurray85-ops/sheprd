@@ -24,7 +24,7 @@
 
 ## 🚀 One-Step Linux Installation
 
-Sheprd provides an automated setup script that configures your directories, checks Python dependencies, downloads the pre-built `llama.cpp` Vulkan acceleration bundle, and registers the `sheprd` CLI in `~/.local/bin`.
+Sheprd provides an automated setup script that configures an isolated environment, automatically resolves Python dependencies across all major Linux distributions (Ubuntu, Debian, Fedora, Arch, openSUSE, Alpine), downloads the pre-built `llama.cpp` Vulkan acceleration bundle, and registers the `sheprd` CLI in `~/.local/bin`.
 
 ### Option 1: Quick Install (Git Clone)
 
@@ -35,16 +35,20 @@ chmod +x install.sh
 ./install.sh
 ```
 
-Ensure `~/.local/bin` is in your `PATH`:
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
+The installer automatically handles PEP 668 managed environments (Ubuntu 24.04+, Debian 12+, Fedora, Arch) using an isolated virtual environment and configures `~/.local/bin` in your shell startup configuration.
 
 ### Option 2: Python Package (pip)
 
 ```bash
 cd sheprd
 pip install -e .
+```
+
+### Uninstallation
+
+To completely remove Sheprd, run:
+```bash
+./uninstall.sh
 ```
 
 ---
