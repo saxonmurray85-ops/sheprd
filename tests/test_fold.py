@@ -751,6 +751,39 @@ class TestHardeningAndHotSwap(unittest.TestCase):
             main()
             self.assertIn("Invalid MCP server name", mock_stdout.getvalue())
 
+    def test_web_app_security_imports_and_validation(self):
+        from fold.web.app import validate_context_size as web_ctx_val
+        from fold.web.app import validate_gpu_layers as web_gpu_val
+
+        # Verify imports match security module
+        self.assertEqual(web_ctx_val(4096), 4096)
+        self.assertEqual(web_ctx_val("8192"), 8192)
+        with self.assertRaises(SecurityError):
+            web_ctx_val(10)
+        with self.assertRaises(SecurityError):
+            web_ctx_val("not_a_number")
+
+        self.assertEqual(web_gpu_val(0), 0)
+        self.assertEqual(web_gpu_val("33"), 33)
+        with self.assertRaises(SecurityError):
+            web_gpu_val(9999)
+        with self.assertRaises(SecurityError):
+            web_gpu_val("abc")
+
+    def test_gemma_sliding_window_metadata_handling(self):
+        from fold.inspector import _extract_int, GGUFInspector
+
+        # Test list of ints (Gemma 4 alternating heads)
+        self.assertEqual(_extract_int([8, 8, 8, 8, 8, 1, 8, 8]), 8)
+        # Test list of numeric strings
+        self.assertEqual(_extract_int(["16", "8", "32"]), 32)
+        # Test tuple
+        self.assertEqual(_extract_int((4, 2, 8)), 8)
+        # Test empty or malformed collections
+        self.assertEqual(_extract_int([], default=16), 16)
+        self.assertEqual(_extract_int(["bad", "data"], default=4), 4)
+        self.assertEqual(_extract_int(None, default=8), 8)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -30,7 +30,7 @@
 
 Fold introduces an elegant, modern visual identity inspired by origami papercraft and a soft pastel aesthetic:
 - **Origami Paper Sheep**: Distinct faceted geometric origami sheep avatars for your agent fleet, status badges, and header branding.
-- **Pastel Color System**: Carefully calibrated tones of **Sky Blue** (`#7eb8da`), **Sage Green** (`#88b79b`), **Slate Grey** (`#cbd5e1`), and **Origami Paper Cream** (`#fbf7ee`) on a deep slate canvas (`#0c121e`).
+- **Pastel Color System**: Carefully calibrated tones of **Sky Blue** (`#7eb8da`), **Sage Green** (`#88b79b`), and **Slate Grey** (`#cbd5e1` / `#e2e8f0`) on a light, airy paper canvas with crisp cards and origami papercraft accents.
 - **Clean Responsive Layout**: Identical workflow placement with rounded modern cards, subtle ambient glows, and clean typography.
 
 <p align="center">

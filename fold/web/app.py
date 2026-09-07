@@ -12,6 +12,7 @@ import secrets
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import aiohttp
 from aiohttp import web
 
 from ..database import Database
@@ -29,6 +30,8 @@ from ..security import (
     get_or_create_api_token,
     mask_token,
     validate_agent_name,
+    validate_context_size,
+    validate_gpu_layers,
     validate_group_name,
     validate_model_path,
     validate_port,
@@ -246,9 +249,14 @@ class FoldWebApp:
             port = validate_port(requested_port) if requested_port else self.server_mgr.find_free_port()
 
             # Config overrides or defaults
-            ctx = validate_context_size(data.get("context_size") or rec.context_size)
-            n_gpu = validate_gpu_layers(data.get("n_gpu_layers", rec.n_gpu_layers))
-            threads = int(data.get("threads") or rec.threads)
+            raw_ctx = data.get("context_size")
+            ctx = validate_context_size(raw_ctx if (raw_ctx is not None and str(raw_ctx).strip() != "") else rec.context_size)
+
+            raw_gpu = data.get("n_gpu_layers")
+            n_gpu = validate_gpu_layers(raw_gpu if (raw_gpu is not None and str(raw_gpu).strip() != "") else rec.n_gpu_layers)
+
+            raw_threads = data.get("threads")
+            threads = int(raw_threads if (raw_threads is not None and str(raw_threads).strip() != "") else rec.threads)
             template_kind = data.get("template_kind") or rec.template_kind
 
             # Telegram settings

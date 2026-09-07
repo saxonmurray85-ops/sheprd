@@ -59,13 +59,18 @@ GGUF_FILE_TYPE_NAMES = {
 
 
 def _extract_int(val: Any, default: int = 0) -> int:
-    """Safely extracts an integer from numbers, numeric strings, or lists of numbers."""
+    """Safely extracts an integer from numbers, numeric strings, or collections of numbers."""
     if val is None:
         return default
     if isinstance(val, (int, float)):
         return int(val)
-    if isinstance(val, list):
-        numbers = [int(x) for x in val if isinstance(x, (int, float))]
+    if isinstance(val, (list, tuple, set)):
+        numbers = []
+        for x in val:
+            try:
+                numbers.append(int(x))
+            except (ValueError, TypeError):
+                continue
         return max(numbers) if numbers else default
     try:
         return int(val)
@@ -274,8 +279,13 @@ class GGUFInspector:
             kv_data.get(f"{arch}.attention.head_count_kv")
             or kv_data.get("head_count_kv")
         )
-        if isinstance(raw_head_count_kv, list):
-            valid_nums = [int(x) for x in raw_head_count_kv if isinstance(x, (int, float))]
+        if isinstance(raw_head_count_kv, (list, tuple, set)):
+            valid_nums = []
+            for x in raw_head_count_kv:
+                try:
+                    valid_nums.append(int(x))
+                except (ValueError, TypeError):
+                    pass
             head_count_kv = max(valid_nums) if valid_nums else head_count
             total_kv_heads = sum(valid_nums) if valid_nums else (layer_count * head_count_kv)
         else:

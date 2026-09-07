@@ -1,34 +1,50 @@
-/* Fold Aesthetic Theme - Pastel Blue, Sage Green, and Slate Grey with Origami Paper Sheep Accents */
+/* Fold Aesthetic Theme - Pastel Blue, Sage Green, and Slate Grey on Light Paper Canvas */
 :root {
-  --bg-dark: #0c121e;
-  --bg-surface: #101726;
-  --bg-card: #141d2e;
-  --bg-card-hover: #19243a;
-  --border-green: #223147;
-  --border-slate: #24344d;
-  --border-bright: #7eb8da;
+  /* Canvas / Surfaces */
+  --bg-dark: #e6eff6;          /* Clean page canvas (soft slate with sky blue wash) */
+  --bg-surface: #e2e8f0;       /* Header / nav / sidebar chrome */
+  --bg-card: #ffffff;          /* Crisp white cards, panels, modals */
+  --bg-card-hover: #f8fafc;    /* Card & item hover state */
+  --bg-inset: #f1f5f9;         /* Input wells, tables, console backgrounds */
+  --bg-input: #f8fafc;         /* Form control background */
+
+  /* Borders */
+  --border-green: #cbd5e1;     /* Default refined slate border */
+  --border-slate: #e2e8f0;     /* Subtle divider border */
+  --border-bright: #7eb8da;    /* Focus / active border (sky blue) */
   
-  /* Text */
-  --text-main: #f8fafc;
-  --text-green: #f8fafc;
-  --text-dim: #94a3b8;
-  --text-muted: #64748b;
+  /* Text (Dark ink on light paper for WCAG AA compliance) */
+  --text-main: #1e293b;        /* Body & headings (slate navy) */
+  --text-green: #1e293b;       /* Primary text */
+  --text-dim: #475569;         /* Secondary / metadata text */
+  --text-muted: #64748b;       /* Tertiary text */
+  --text-on-accent: #0f172a;   /* Labels on pastel button fills */
   
-  /* Pastel Accent Palette */
-  --accent-blue: #7eb8da;       /* Soft pastel sky blue */
-  --accent-green: #88b79b;      /* Soft pastel sage green */
-  --accent-sage: #88b79b;
-  --accent-grey: #cbd5e1;       /* Pastel grey / slate */
+  /* Pastel Accent Fills & Washes (User's Exact Pastels) */
+  --accent-blue: #7eb8da;       /* Soft pastel sky blue fill/border */
+  --accent-blue-soft: #93c5fd;  /* Sky blue wash / hover */
+  --accent-green: #88b79b;      /* Soft pastel sage green fill/border */
+  --accent-sage: #88b79b;       /* Sage green */
+  --accent-sage-soft: #a7c4b5;  /* Sage wash */
+  --accent-grey: #cbd5e1;       /* Pastel slate grey swatch */
   --accent-cream: #fbf7ee;      /* Origami paper cream */
-  --accent-mint: #9adbc5;       /* Soft mint */
-  --accent-cyan: #7dd3fc;       /* Soft pastel cyan */
-  --accent-amber: #fde68a;      /* Soft pastel amber */
-  --accent-red: #fca5a5;        /* Soft pastel coral */
+  --accent-mint: #9adbc5;       /* Pastel mint */
+  --accent-cyan: #7dd3fc;       /* Pastel cyan */
+  --accent-amber: #fde68a;      /* Pastel amber */
+  --accent-red: #fca5a5;        /* Pastel coral */
+
+  /* Ink Siblings for Text Elements (In-hue & high contrast on white/light) */
+  --accent-blue-ink: #2f6f93;   /* High contrast sky blue text */
+  --accent-sage-ink: #3d6b54;   /* High contrast sage green text */
+  --accent-amber-ink: #92650a;  /* High contrast amber badge text */
+  --accent-red-ink: #a94442;    /* High contrast red text */
   
-  /* Subtle pastel ambient glows */
-  --glow-blue: 0 4px 20px rgba(126, 184, 218, 0.22);
-  --glow-green: 0 4px 20px rgba(136, 183, 155, 0.18);
-  --glow-bright: 0 0 20px rgba(126, 184, 218, 0.35);
+  /* Soft Ambient Paper Glows & Shadows */
+  --glow-blue: 0 4px 18px rgba(126, 184, 218, 0.28);
+  --glow-green: 0 4px 18px rgba(136, 183, 155, 0.22);
+  --glow-bright: 0 0 16px rgba(126, 184, 218, 0.32);
+  --shadow-card: 0 4px 20px rgba(30, 41, 59, 0.07);
+  --shadow-elevated: 0 12px 32px rgba(30, 41, 59, 0.12);
   
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, Menlo, Monaco, Consolas, monospace;
@@ -50,16 +66,16 @@ body {
   display: flex;
   flex-direction: column;
   background-image: 
-    radial-gradient(ellipse at 50% 0%, rgba(126, 184, 218, 0.08) 0%, transparent 60%),
-    radial-gradient(ellipse at 80% 50%, rgba(136, 183, 155, 0.04) 0%, transparent 50%),
-    linear-gradient(rgba(126, 184, 218, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(126, 184, 218, 0.02) 1px, transparent 1px);
+    radial-gradient(ellipse at 50% 0%, rgba(126, 184, 218, 0.22) 0%, transparent 58%),
+    radial-gradient(ellipse at 82% 48%, rgba(136, 183, 155, 0.14) 0%, transparent 52%),
+    linear-gradient(rgba(126, 184, 218, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(126, 184, 218, 0.08) 1px, transparent 1px);
   background-size: 100% 100%, 100% 100%, 36px 36px, 36px 36px;
 }
 
 /* Header & Brand */
 header {
-  background-color: rgba(16, 23, 38, 0.94);
+  background-color: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border-green);
   padding: 12px 28px;
@@ -69,6 +85,7 @@ header {
   position: sticky;
   top: 0;
   z-index: 100;
+  box-shadow: 0 2px 8px rgba(30, 41, 59, 0.04);
 }
 
 .brand {
@@ -82,8 +99,8 @@ header {
 .brand-icon-wrapper {
   width: 44px;
   height: 44px;
-  background: rgba(126, 184, 218, 0.12);
-  border: 1px solid rgba(126, 184, 218, 0.3);
+  background: rgba(126, 184, 218, 0.18);
+  border: 1px solid var(--accent-blue);
   border-radius: 10px;
   display: flex;
   align-items: center;
@@ -93,7 +110,7 @@ header {
 }
 
 .brand:hover .brand-icon-wrapper {
-  background: rgba(126, 184, 218, 0.2);
+  background: rgba(126, 184, 218, 0.3);
   border-color: var(--accent-blue);
   transform: translateY(-1px);
 }
@@ -127,7 +144,7 @@ header {
 }
 
 .brand-title span.title-accent {
-  color: var(--accent-blue);
+  color: var(--accent-blue-ink);
 }
 
 .brand-sub {
@@ -152,14 +169,15 @@ header {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: rgba(20, 29, 46, 0.85);
+  background: var(--bg-card);
   padding: 6px 12px;
   border-radius: 6px;
   border: 1px solid var(--border-green);
+  box-shadow: 0 1px 4px rgba(30, 41, 59, 0.05);
 }
 
 .telemetry-item strong {
-  color: var(--accent-blue);
+  color: var(--accent-blue-ink);
   font-weight: 600;
 }
 
@@ -169,7 +187,7 @@ nav.tabs-nav {
   gap: 8px;
   padding: 12px 28px;
   border-bottom: 1px solid var(--border-green);
-  background: rgba(12, 18, 30, 0.8);
+  background: rgba(255, 255, 255, 0.85);
   backdrop-filter: blur(8px);
 }
 
@@ -191,15 +209,15 @@ nav.tabs-nav {
 }
 
 .tab-btn:hover {
-  background: rgba(126, 184, 218, 0.08);
-  border-color: rgba(126, 184, 218, 0.2);
-  color: var(--accent-blue);
+  background: rgba(126, 184, 218, 0.15);
+  border-color: rgba(126, 184, 218, 0.4);
+  color: var(--accent-blue-ink);
 }
 
 .tab-btn.active {
-  background: rgba(126, 184, 218, 0.14);
-  border-color: rgba(126, 184, 218, 0.4);
-  color: var(--accent-blue);
+  background: rgba(147, 197, 253, 0.35);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue-ink);
   box-shadow: var(--glow-blue);
 }
 
@@ -218,12 +236,6 @@ main {
 
 .tab-content.active {
   display: block;
-  animation: fadeIn 0.2s ease-in-out;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(3px); }
-  to { opacity: 1; transform: translateY(0); }
 }
 
 /* Section Header */
@@ -245,7 +257,7 @@ main {
 }
 
 .section-title span {
-  color: var(--accent-blue);
+  color: var(--accent-blue-ink);
 }
 
 /* Agent Grid & Cards */
@@ -266,12 +278,12 @@ main {
   transition: all 0.2s ease;
   position: relative;
   overflow: hidden;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-card);
 }
 
 .agent-card:hover {
-  border-color: rgba(126, 184, 218, 0.45);
-  box-shadow: var(--glow-blue);
+  border-color: var(--accent-blue);
+  box-shadow: var(--shadow-elevated), var(--glow-blue);
   transform: translateY(-2px);
 }
 
@@ -292,14 +304,14 @@ main {
   width: 46px;
   height: 46px;
   border-radius: 10px;
-  background: rgba(126, 184, 218, 0.1);
-  border: 1px solid rgba(126, 184, 218, 0.25);
+  background: rgba(126, 184, 218, 0.15);
+  border: 1px solid var(--border-bright);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 2px 8px rgba(30, 41, 59, 0.08);
 }
 
 .agent-origami-avatar svg {
@@ -322,7 +334,7 @@ main {
 .agent-name {
   font-size: 17px;
   font-weight: 700;
-  color: var(--accent-blue);
+  color: var(--accent-blue-ink);
   letter-spacing: 0.2px;
 }
 
@@ -340,33 +352,33 @@ main {
 }
 
 .status-badge.running {
-  background: rgba(136, 183, 155, 0.15);
-  color: var(--accent-sage);
-  border: 1px solid rgba(136, 183, 155, 0.35);
+  background: rgba(136, 183, 155, 0.22);
+  color: var(--accent-sage-ink);
+  border: 1px solid var(--accent-sage-soft);
   box-shadow: var(--glow-green);
 }
 
 .status-badge.stopped {
-  background: rgba(148, 163, 184, 0.1);
+  background: rgba(148, 163, 184, 0.18);
   color: var(--text-dim);
-  border: 1px solid rgba(148, 163, 184, 0.25);
+  border: 1px solid var(--border-green);
 }
 
 .status-badge.error {
-  background: rgba(252, 165, 165, 0.15);
-  color: var(--accent-red);
-  border: 1px solid rgba(252, 165, 165, 0.35);
+  background: rgba(252, 165, 165, 0.25);
+  color: var(--accent-red-ink);
+  border: 1px solid var(--accent-red);
 }
 
 .agent-identity {
   font-size: 13px;
-  color: var(--accent-sage);
+  color: var(--accent-sage-ink);
   font-weight: 600;
 }
 
 .agent-personality, .agent-job {
   font-size: 12px;
-  color: var(--accent-grey);
+  color: var(--text-dim);
   line-height: 1.45;
 }
 
@@ -379,7 +391,7 @@ main {
 }
 
 .meta-pill {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--bg-inset);
   border: 1px solid var(--border-green);
   padding: 3px 8px;
   border-radius: 4px;
@@ -391,9 +403,9 @@ main {
 }
 
 .meta-pill.highlight {
-  border-color: rgba(126, 184, 218, 0.35);
-  color: var(--accent-blue);
-  background: rgba(126, 184, 218, 0.08);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue-ink);
+  background: rgba(126, 184, 218, 0.16);
 }
 
 .agent-card-actions {
@@ -422,50 +434,50 @@ main {
 }
 
 .btn-primary {
-  background: rgba(126, 184, 218, 0.16);
+  background: rgba(126, 184, 218, 0.22);
   border-color: var(--accent-blue);
-  color: var(--accent-blue);
+  color: var(--accent-blue-ink);
 }
 
 .btn-primary:hover {
   background: var(--accent-blue);
-  color: #0c121e;
+  color: var(--text-on-accent);
   box-shadow: var(--glow-bright);
 }
 
 .btn-secondary {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg-card);
   border-color: var(--border-green);
-  color: var(--accent-grey);
+  color: var(--text-dim);
 }
 
 .btn-secondary:hover {
   border-color: var(--accent-blue);
   color: var(--text-main);
-  background: rgba(126, 184, 218, 0.08);
+  background: var(--bg-card-hover);
 }
 
 .btn-herdr {
-  background: rgba(136, 183, 155, 0.14);
-  border-color: var(--accent-sage);
-  color: var(--accent-sage);
+  background: rgba(136, 183, 155, 0.2);
+  border-color: var(--accent-sage-soft);
+  color: var(--accent-sage-ink);
 }
 
 .btn-herdr:hover {
   background: var(--accent-sage);
-  color: #0c121e;
+  color: var(--text-on-accent);
   box-shadow: var(--glow-green);
 }
 
 .btn-danger {
-  background: rgba(252, 165, 165, 0.12);
+  background: rgba(252, 165, 165, 0.2);
   border-color: var(--accent-red);
-  color: var(--accent-red);
+  color: var(--accent-red-ink);
 }
 
 .btn-danger:hover {
   background: var(--accent-red);
-  color: #0c121e;
+  color: var(--text-on-accent);
 }
 
 /* Form Styling */
@@ -476,7 +488,7 @@ main {
   padding: 28px;
   max-width: 820px;
   margin: 0 auto;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-card);
 }
 
 .form-grid {
@@ -498,7 +510,7 @@ main {
 .form-group label {
   font-size: 12px;
   font-weight: 600;
-  color: var(--accent-blue);
+  color: var(--accent-blue-ink);
   letter-spacing: 0.3px;
 }
 
@@ -508,7 +520,7 @@ main {
 }
 
 .form-control {
-  background: #0d1522;
+  background: var(--bg-inset);
   border: 1px solid var(--border-green);
   color: var(--text-main);
   font-family: var(--font-mono);
@@ -521,7 +533,7 @@ main {
 
 .form-control:focus {
   border-color: var(--accent-blue);
-  box-shadow: var(--glow-blue);
+  box-shadow: 0 0 0 3px rgba(126, 184, 218, 0.25);
 }
 
 textarea.form-control {
@@ -540,7 +552,7 @@ textarea.form-control {
 
 /* Inspection Box */
 .inspection-result {
-  background: rgba(126, 184, 218, 0.04);
+  background: rgba(126, 184, 218, 0.08);
   border: 1px dashed var(--accent-blue);
   border-radius: 8px;
   padding: 16px;
@@ -560,10 +572,11 @@ textarea.form-control {
 }
 
 .inspect-stat-card {
-  background: #0d1522;
+  background: var(--bg-card);
   padding: 10px;
   border-radius: 6px;
   border: 1px solid var(--border-green);
+  box-shadow: 0 1px 4px rgba(30, 41, 59, 0.04);
 }
 
 .inspect-stat-card .label {
@@ -575,7 +588,7 @@ textarea.form-control {
   font-size: 14px;
   font-family: var(--font-mono);
   font-weight: 700;
-  color: var(--accent-blue);
+  color: var(--accent-blue-ink);
   margin-top: 4px;
 }
 
@@ -588,13 +601,13 @@ textarea.form-control {
   border: 1px solid var(--border-green);
   border-radius: 10px;
   overflow: hidden;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+  box-shadow: var(--shadow-card);
 }
 
 .chat-sidebar {
   width: 260px;
   border-right: 1px solid var(--border-green);
-  background: #101726;
+  background: var(--bg-surface);
   display: flex;
   flex-direction: column;
 }
@@ -605,8 +618,9 @@ textarea.form-control {
   font-weight: 700;
   font-size: 11px;
   letter-spacing: 1px;
-  color: var(--accent-blue);
+  color: var(--accent-blue-ink);
   font-family: var(--font-mono);
+  background: var(--bg-card);
 }
 
 .chat-agent-list {
@@ -616,7 +630,7 @@ textarea.form-control {
 
 .chat-agent-item {
   padding: 12px 16px;
-  border-bottom: 1px solid rgba(34, 49, 71, 0.5);
+  border-bottom: 1px solid var(--border-slate);
   cursor: pointer;
   transition: background 0.15s;
   display: flex;
@@ -625,11 +639,11 @@ textarea.form-control {
 }
 
 .chat-agent-item:hover {
-  background: rgba(126, 184, 218, 0.05);
+  background: rgba(126, 184, 218, 0.1);
 }
 
 .chat-agent-item.active {
-  background: rgba(126, 184, 218, 0.12);
+  background: rgba(147, 197, 253, 0.35);
   border-left: 3px solid var(--accent-blue);
 }
 
@@ -637,8 +651,8 @@ textarea.form-control {
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background: rgba(126, 184, 218, 0.1);
-  border: 1px solid rgba(126, 184, 218, 0.2);
+  background: rgba(126, 184, 218, 0.15);
+  border: 1px solid var(--border-bright);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -657,7 +671,7 @@ textarea.form-control {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: #0a0f19;
+  background: var(--bg-inset);
 }
 
 .chat-header {
@@ -666,7 +680,7 @@ textarea.form-control {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: rgba(16, 23, 38, 0.7);
+  background: var(--bg-card);
 }
 
 .chat-messages {
@@ -690,16 +704,17 @@ textarea.form-control {
 
 .chat-bubble.user {
   align-self: flex-end;
-  background: rgba(126, 184, 218, 0.12);
+  background: rgba(126, 184, 218, 0.25);
   border: 1px solid var(--accent-blue);
   color: var(--text-main);
 }
 
 .chat-bubble.assistant {
   align-self: flex-start;
-  background: #141d2e;
+  background: var(--bg-card);
   border: 1px solid var(--border-green);
-  color: var(--accent-grey);
+  color: var(--text-main);
+  box-shadow: 0 1px 4px rgba(30, 41, 59, 0.05);
 }
 
 .chat-bubble .sender-label {
@@ -707,7 +722,7 @@ textarea.form-control {
   font-weight: 700;
   font-family: var(--font-mono);
   margin-bottom: 4px;
-  color: var(--accent-blue);
+  color: var(--accent-blue-ink);
 }
 
 .chat-input-bar {
@@ -715,7 +730,7 @@ textarea.form-control {
   border-top: 1px solid var(--border-green);
   display: flex;
   gap: 12px;
-  background: #101726;
+  background: var(--bg-card);
 }
 
 .chat-input-bar input {
@@ -724,7 +739,7 @@ textarea.form-control {
 
 /* Logs Console */
 .logs-console {
-  background: #080c14;
+  background: #0f172a;
   border: 1px solid var(--border-green);
   border-radius: 8px;
   padding: 18px;
@@ -733,7 +748,7 @@ textarea.form-control {
   overflow-y: auto;
   font-family: var(--font-mono);
   font-size: 12px;
-  color: var(--accent-grey);
+  color: #cbd5e1;
   white-space: pre-wrap;
   line-height: 1.45;
 }
@@ -745,7 +760,7 @@ textarea.form-control {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(5, 8, 14, 0.82);
+  background: rgba(30, 41, 59, 0.45);
   backdrop-filter: blur(6px);
   display: none;
   justify-content: center;
@@ -760,7 +775,7 @@ textarea.form-control {
 .modal-card {
   background: var(--bg-card);
   border: 1px solid var(--accent-blue);
-  box-shadow: var(--glow-bright);
+  box-shadow: var(--shadow-elevated);
   border-radius: 10px;
   width: 90%;
   max-width: 600px;
@@ -781,9 +796,9 @@ textarea.form-control {
 }
 
 .toast {
-  background: #141d2e;
+  background: var(--bg-card);
   border: 1px solid var(--accent-blue);
-  box-shadow: var(--glow-bright);
+  box-shadow: var(--shadow-elevated);
   color: var(--text-main);
   padding: 12px 18px;
   border-radius: 6px;
@@ -820,17 +835,19 @@ textarea.form-control {
 }
 
 .tool-item-card {
-  background: #0d1522;
+  background: var(--bg-card);
   border: 1px solid var(--border-green);
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 14px;
   margin-bottom: 12px;
   transition: all 0.2s ease;
+  box-shadow: 0 1px 4px rgba(30, 41, 59, 0.04);
 }
 
 .tool-item-card:hover {
   border-color: var(--accent-blue);
-  background: #111a2a;
+  background: var(--bg-card-hover);
+  box-shadow: var(--shadow-card);
 }
 
 .tool-header-line {
@@ -842,7 +859,7 @@ textarea.form-control {
 
 .tool-name {
   font-weight: 700;
-  color: var(--accent-blue);
+  color: var(--accent-blue-ink);
   font-size: 14px;
   font-family: var(--font-mono);
 }
@@ -857,15 +874,15 @@ textarea.form-control {
 }
 
 .tool-badge.core {
-  background: rgba(126, 184, 218, 0.15);
-  color: var(--accent-blue);
-  border: 1px solid rgba(126, 184, 218, 0.4);
+  background: rgba(126, 184, 218, 0.2);
+  color: var(--accent-blue-ink);
+  border: 1px solid var(--accent-blue);
 }
 
 .tool-badge.mcp {
-  background: rgba(253, 230, 138, 0.15);
-  color: var(--accent-amber);
-  border: 1px solid rgba(253, 230, 138, 0.4);
+  background: rgba(253, 230, 138, 0.3);
+  color: var(--accent-amber-ink);
+  border: 1px solid var(--accent-amber);
 }
 
 .tool-desc {
@@ -876,9 +893,9 @@ textarea.form-control {
 
 .tool-call-badge {
   display: inline-block;
-  background: rgba(126, 184, 218, 0.1);
-  border: 1px solid rgba(126, 184, 218, 0.3);
-  color: var(--accent-blue);
+  background: rgba(126, 184, 218, 0.15);
+  border: 1px solid var(--accent-blue);
+  color: var(--accent-blue-ink);
   padding: 3px 8px;
   border-radius: 4px;
   font-size: 11px;
@@ -894,7 +911,7 @@ textarea.form-control {
 }
 
 .featured-mcp-card {
-  background: #0d1522;
+  background: var(--bg-card);
   border: 1px solid var(--border-green);
   border-radius: 8px;
   padding: 14px;
@@ -902,12 +919,13 @@ textarea.form-control {
   flex-direction: column;
   justify-content: space-between;
   transition: all 0.2s ease;
+  box-shadow: 0 1px 4px rgba(30, 41, 59, 0.04);
 }
 
 .featured-mcp-card:hover {
   border-color: var(--accent-blue);
-  box-shadow: 0 0 14px rgba(126, 184, 218, 0.2);
-  background: #111a2a;
+  box-shadow: var(--shadow-card);
+  background: var(--bg-card-hover);
 }
 
 .featured-mcp-top {
@@ -920,7 +938,7 @@ textarea.form-control {
 .featured-mcp-title {
   font-weight: 700;
   font-size: 14px;
-  color: var(--accent-blue);
+  color: var(--accent-blue-ink);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -943,9 +961,9 @@ textarea.form-control {
 
 .mcp-pill {
   font-size: 10px;
-  background: rgba(126, 184, 218, 0.08);
+  background: rgba(126, 184, 218, 0.15);
   border: 1px solid var(--border-green);
-  color: var(--accent-blue);
+  color: var(--accent-blue-ink);
   padding: 2px 6px;
   border-radius: 4px;
   font-family: var(--font-mono);
@@ -955,16 +973,17 @@ textarea.form-control {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-top: 1px solid rgba(126, 184, 218, 0.1);
+  border-top: 1px solid var(--border-slate);
   padding-top: 10px;
 }
 
 .smithery-search-container {
-  background: rgba(126, 184, 218, 0.03);
-  border: 1px solid rgba(126, 184, 218, 0.3);
-  border-radius: 6px;
-  padding: 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-green);
+  border-radius: 8px;
+  padding: 16px;
   margin-bottom: 16px;
+  box-shadow: var(--shadow-card);
 }
 
 .discovered-tools-container {
@@ -976,10 +995,10 @@ textarea.form-control {
 
 .discovered-tool-pill {
   font-size: 10px;
-  background: rgba(126, 184, 218, 0.1);
-  border: 1px solid rgba(126, 184, 218, 0.3);
-  color: var(--accent-blue);
-  padding: 1px 6px;
+  background: rgba(126, 184, 218, 0.15);
+  border: 1px solid var(--accent-blue);
+  color: var(--accent-blue-ink);
+  padding: 2px 6px;
   border-radius: 4px;
   font-family: var(--font-mono);
 }
