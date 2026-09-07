@@ -12,6 +12,7 @@ from pathlib import Path
 from .database import Database
 from .herdr_integration import HerdrIntegration
 from .inspector import analyze_model_and_recommend
+from .cli_shell import FoldCLI
 from .interactive_chat import InteractiveChatSession
 from .mcp_smithery import parse_mcp_install_string, search_smithery_registry, sync_external_client_configs
 from .security import SecurityError, mask_token, validate_model_path
@@ -31,6 +32,11 @@ C_CREAM = "\033[38;5;230m"       # Origami paper cream
 C_CYAN = "\033[38;5;153m"
 C_AMBER = "\033[38;5;222m"
 C_RED = "\033[38;5;217m"
+
+
+def cmd_cli(args=None):
+    cli = FoldCLI()
+    cli.run_loop()
 
 
 def cmd_web(args):
@@ -531,12 +537,19 @@ def main():
     p_rm.add_argument("name", help="Agent name")
     p_rm.set_defaults(func=cmd_remove)
 
+    # cli (interactive console shell)
+    p_cli = subparsers.add_parser("cli", aliases=["shell", "console"], help="Launch interactive Fold CLI console shell")
+    p_cli.set_defaults(func=cmd_cli)
+
     args = parser.parse_args()
 
     if not args.command:
-        # Default action when run with no arguments: list or show help
-        cmd_list(args)
-        print("Run 'fold web' to open the Web UI or 'fold --help' for CLI commands.")
+        # If run interactively in a terminal, enter the interactive CLI shell!
+        if sys.stdin.isatty():
+            cmd_cli(args)
+        else:
+            cmd_list(args)
+            print("Run 'fold cli' to open the interactive CLI or 'fold web' for the Web UI.")
         return
 
     args.func(args)

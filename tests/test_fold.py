@@ -784,6 +784,26 @@ class TestHardeningAndHotSwap(unittest.TestCase):
         self.assertEqual(_extract_int(["bad", "data"], default=4), 4)
         self.assertEqual(_extract_int(None, default=8), 8)
 
+    def test_interactive_cli_shell(self):
+        from fold.cli_shell import FoldCLI
+        from unittest.mock import patch
+        import io
+
+        cli = FoldCLI()
+        # Test help command
+        with patch("sys.stdout", new=io.StringIO()) as mock_out:
+            cli.execute_command("help", [])
+            self.assertIn("FOLD CLI COMMAND REFERENCE", mock_out.getvalue())
+
+        # Test status command
+        with patch("sys.stdout", new=io.StringIO()) as mock_out:
+            cli.execute_command("status", [])
+            self.assertIn("FOLD FLEET STATUS", mock_out.getvalue())
+
+        # Test tab completer
+        self.assertIn("chat", [cli._completer("ch", 0)])
+        self.assertIn("status", [cli._completer("st", 0), cli._completer("st", 1)])
+
 
 if __name__ == "__main__":
     unittest.main()

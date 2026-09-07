@@ -245,11 +245,13 @@ if [[ ":$PATH:" != *":${LOCAL_BIN}:"* ]]; then
     fi
 
     if [ -n "${SHELL_RC}" ] && [ -f "${SHELL_RC}" ]; then
-        if ! grep -q '.local/bin' "${SHELL_RC}"; then
+        if ! grep -q 'alias fold=' "${SHELL_RC}"; then
             echo '' >> "${SHELL_RC}"
             echo '# Added by Fold installer' >> "${SHELL_RC}"
             echo 'export PATH="$HOME/.local/bin:$PATH"' >> "${SHELL_RC}"
-            echo -e "${C_GREEN}  ✓ Added ${LOCAL_BIN} to ${SHELL_RC}.${C_RESET}"
+            echo 'alias fold="$HOME/.local/bin/fold"' >> "${SHELL_RC}"
+            echo 'alias sheprd="$HOME/.local/bin/sheprd"' >> "${SHELL_RC}"
+            echo -e "${C_GREEN}  ✓ Added Fold aliases & PATH to ${SHELL_RC}.${C_RESET}"
             PATH_CONFIGURED=true
         fi
     fi
@@ -262,6 +264,7 @@ if [ "${PATH_CONFIGURED}" = false ]; then
     echo -e "  ${C_BOLD}export PATH=\"\$HOME/.local/bin:\$PATH\"${C_RESET}"
 fi
 echo -e "\n${C_BOLD}Quick Commands:${C_RESET}"
+echo -e "  ${C_BLUE}fold cli${C_RESET}                 # Launch interactive Fold CLI console shell"
 echo -e "  ${C_BLUE}fold web${C_RESET}                 # Launch the Fold Web UI"
 echo -e "  ${C_BLUE}fold download qwen2.5-0.5b${C_RESET} # Download starter model (469MB)"
 echo -e "  ${C_BLUE}fold list${C_RESET}                # View configured agents and ports"
