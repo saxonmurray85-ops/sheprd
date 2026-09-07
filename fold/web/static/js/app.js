@@ -238,7 +238,12 @@ function renderAgents(agents) {
     return;
   }
 
-  const sheepHues = ["blue", "green", "grey", "cream"];
+  const sheepImages = [
+    { src: "/static/img/sheep_sage.png", hue: "green", name: "Sage" },
+    { src: "/static/img/sheep_blue.png", hue: "blue", name: "Sky" },
+    { src: "/static/img/sheep_cream.png", hue: "cream", name: "Cream" },
+    { src: "/static/img/sheep_pink.png", hue: "pink", name: "Rose" },
+  ];
 
   container.innerHTML = agents.map(agent => {
     const isRunning = agent.status === "running";
@@ -246,16 +251,16 @@ function renderAgents(agents) {
     const statusText = isRunning ? `ONLINE (:${agent.port})` : agent.status.toUpperCase();
     const modelBase = agent.model_path.split("/").pop();
 
-    const hueIdx = Math.abs(agent.name.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0)) % sheepHues.length;
-    const sheepSvg = getOrigamiSheepSvg(sheepHues[hueIdx]);
+    const hueIdx = Math.abs(agent.name.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0)) % sheepImages.length;
+    const sheepImg = sheepImages[hueIdx];
     const groupsHtml = agent.groups.map(g => `<span class="meta-pill">grp: <strong>${escapeHtml(g)}</strong></span>`).join(" ");
 
     return `
       <div class="agent-card" id="card-${agent.name}">
         <div class="agent-card-header">
           <div class="agent-header-left">
-            <div class="agent-origami-avatar">
-              ${sheepSvg}
+            <div class="agent-origami-avatar" title="${escapeHtml(agent.name)} (${sheepImg.name} Origami Sheep)">
+              <img src="${sheepImg.src}" alt="${sheepImg.name} Origami Sheep" class="agent-origami-img" onerror="this.outerHTML=getOrigamiSheepSvg('${sheepImg.hue}')">
             </div>
             <div>
               <div class="agent-name">${escapeHtml(agent.name)}</div>
@@ -570,17 +575,30 @@ function updateChatSidebar(agents) {
   const container = document.getElementById("chat-agent-list");
   if (!container) return;
 
-  container.innerHTML = agents.map(a => `
+  const sheepImages = [
+    { src: "/static/img/sheep_sage.png", hue: "green" },
+    { src: "/static/img/sheep_blue.png", hue: "blue" },
+    { src: "/static/img/sheep_cream.png", hue: "cream" },
+    { src: "/static/img/sheep_pink.png", hue: "pink" },
+  ];
+
+  container.innerHTML = agents.map(a => {
+    const hueIdx = Math.abs(a.name.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0)) % sheepImages.length;
+    const sheepImg = sheepImages[hueIdx];
+    return `
     <div class="chat-agent-item ${a.name === state.activeChatAgent ? 'active' : ''}" onclick="selectChatAgent('${a.name}')">
-      <div>
-        <div style="font-weight: 700; color: var(--accent-green);">${escapeHtml(a.name)}</div>
-        <div style="font-size: 11px; color: var(--text-dim);">${escapeHtml(a.identity)}</div>
+      <div class="chat-sidebar-sheep-avatar">
+        <img src="${sheepImg.src}" alt="${escapeHtml(a.name)}" class="chat-sidebar-sheep-img" onerror="this.outerHTML=getOrigamiSheepSvg('${sheepImg.hue}')">
+      </div>
+      <div style="flex: 1; min-width: 0;">
+        <div style="font-weight: 700; color: var(--accent-blue); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(a.name)}</div>
+        <div style="font-size: 11px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(a.identity)}</div>
       </div>
       <span style="font-size: 10px; color: ${a.status === 'running' ? 'var(--accent-green)' : 'var(--text-dim)'}">
         ● ${a.status.toUpperCase()}
       </span>
     </div>
-  `).join("");
+  `}).join("");
 
   if (!state.activeChatAgent && agents.length > 0) {
     selectChatAgent(agents[0].name);

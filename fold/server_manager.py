@@ -43,11 +43,18 @@ class ServerManager:
 
     def resolve_binary(self) -> str:
         """Finds valid llama-server binary."""
-        if self.bin_path.exists() and os.access(self.bin_path, os.X_OK):
-            return str(self.bin_path.resolve())
-
-        if LEGACY_BIN_PATH.exists() and os.access(LEGACY_BIN_PATH, os.X_OK):
-            return str(LEGACY_BIN_PATH.resolve())
+        candidates = [
+            self.bin_path,
+            LEGACY_BIN_PATH,
+            Path("/opt/llama.cpp/build/bin/llama-server"),
+            Path("/opt/squire-llama/llama-server"),
+            Path.home() / ".local/bin/llama-server",
+            Path("/usr/local/bin/llama-server"),
+            Path("/usr/bin/llama-server"),
+        ]
+        for cand in candidates:
+            if cand and cand.exists() and os.access(cand, os.X_OK):
+                return str(cand.resolve())
 
         # Fallback to PATH
         import shutil
@@ -57,7 +64,7 @@ class ServerManager:
 
         raise FileNotFoundError(
             f"llama-server executable not found at '{self.bin_path}' or on PATH. "
-            "Please ensure llama.cpp is installed in ~/.local/share/fold/bin/."
+            "Please ensure llama.cpp is installed in ~/.local/share/fold/bin/ or /opt/llama.cpp/build/bin/."
         )
 
     def find_free_port(self, start_port: int = 8081, max_port: int = 9000) -> int:
@@ -199,6 +206,20 @@ class ServerManager:
             except OSError:
                 pass
 
+            # Calculate dynamic startup timeout based on model size (larger models take longer to allocate)
+            try:
+                model_size_gb = model_target.stat().st_size / (1024 ** 3)
+            except Exception:
+                model_size_gb = 5.0
+
+            effective_timeout = max(timeout_sec, 45)
+            if model_size_gb > 15:
+                effective_timeout = max(effective_timeout, 90)
+            if model_size_gb > 30:
+                effective_timeout = max(effective_timeout, 180)
+            if model_size_gb > 70:
+                effective_timeout = max(effective_timeout, 300)
+
             # Command arguments list (no shell=True for strict command injection defense)
             cmd = [
                 bin_exec,
@@ -209,10 +230,29 @@ class ServerManager:
                 "-t", str(agent.threads),
                 "-b", "2048",
                 "-ub", "512",
+                "--jinja",
             ]
+
+            # Template flag detection (Gemma, Llama-3, ChatML, Mistral)
+            arch_lower = (agent.model_architecture or "").lower()
+            path_lower = str(model_target).lower()
+            if "gemma" in arch_lower or "gemma" in path_lower:
+                cmd.extend(["--chat-template", "gemma"])
+            elif "llama-3" in arch_lower or "llama3" in path_lower:
+                cmd.extend(["--chat-template", "llama-3"])
+            elif "chatml" in arch_lower or "qwen" in path_lower or "qwen" in arch_lower:
+                cmd.extend(["--chat-template", "chatml"])
+            elif "mistral" in arch_lower or "devstral" in path_lower:
+                cmd.extend(["--chat-template", "mistral"])
+            else:
+                cmd.extend(["--chat-template", "auto"])
 
             if agent.n_gpu_layers > 0:
                 cmd.extend(["-ngl", str(agent.n_gpu_layers)])
+
+            # Support --no-mmap for unified memory architectures (ROCm) or huge models
+            if os.environ.get("FOLD_NO_MMAP") == "1" or model_size_gb > 40:
+                cmd.append("--no-mmap")
 
             # Additional optimizations for responsiveness
             cmd.extend(["--parallel", "1", "--cont-batching"])
@@ -235,7 +275,7 @@ class ServerManager:
             # Wait for server readiness
             start_time = time.time()
             ready = False
-            while time.time() - start_time < timeout_sec:
+            while time.time() - start_time < effective_timeout:
                 if proc.poll() is not None:
                     # Process died early
                     self.db.update_agent_status(agent_name, "error", None)
@@ -252,7 +292,7 @@ class ServerManager:
                 return True, f"Agent '{agent_name}' started successfully on port {agent.port} (PID {proc.pid})."
             else:
                 self.stop_agent_server(agent_name)
-                return False, f"Server startup timed out after {timeout_sec}s. Check logs at {log_file_path}."
+                return False, f"Server startup timed out after {effective_timeout}s. Check logs at {log_file_path}."
 
         except Exception as e:
             self.db.update_agent_status(agent_name, "error", None)

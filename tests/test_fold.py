@@ -126,6 +126,25 @@ class TestGGUFInspector(unittest.TestCase):
         self.assertGreater(rec.n_gpu_layers, 0)
         self.assertEqual(rec.threads, 8)
 
+    def test_extract_int_helper(self):
+        from fold.inspector import _extract_int
+        self.assertEqual(_extract_int(42), 42)
+        self.assertEqual(_extract_int("128"), 128)
+        self.assertEqual(_extract_int([8, 8, 1]), 8)
+        self.assertEqual(_extract_int([]), 0)
+        self.assertEqual(_extract_int(None, default=16), 16)
+        self.assertEqual(_extract_int("invalid", default=32), 32)
+
+    def test_detect_template_kind_architectures(self):
+        from fold.inspector import GGUFInspector
+        self.assertEqual(GGUFInspector.detect_template_kind("", "gemma4", "gemma-4-12b"), "gemma")
+        self.assertEqual(GGUFInspector.detect_template_kind("<start_of_turn>user", "llama", "model"), "gemma")
+        self.assertEqual(GGUFInspector.detect_template_kind("", "mistral3", "Devstral-Small"), "mistral")
+        self.assertEqual(GGUFInspector.detect_template_kind("", "qwen3moe", "Qwen3-235B"), "chatml")
+        self.assertEqual(GGUFInspector.detect_template_kind("", "glm-dsa", "GLM-5.2"), "chatml")
+        self.assertEqual(GGUFInspector.detect_template_kind("<|start_header_id|>", "llama", "Llama-3.1"), "llama-3")
+        self.assertEqual(GGUFInspector.detect_template_kind("<｜user｜>", "deepseek2", "DeepSeek-V2"), "deepseek")
+
 
 class TestHardwareInspector(unittest.TestCase):
     def test_detect_hardware(self):

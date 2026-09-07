@@ -3,13 +3,26 @@
 > **Terminal & web orchestrator for deploying local llama.cpp models, spinning up specialized AI agents, and seamlessly spawning them inside Herdr terminal workspaces and Telegram.**
 
 <p align="center">
-  <img src="docs/assets/fold_logo.jpeg" alt="Fold Origami Sheep Branding" width="600" style="border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.4);" />
+  <img src="docs/assets/fold_trio.png" alt="Fold Origami Sheep Branding" width="600" style="border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.4);" />
 </p>
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-7eb8da.svg?style=flat-square)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-88b79b.svg?style=flat-square)](https://opensource.org/licenses/MIT)
-[![llama.cpp: Vulkan](https://img.shields.io/badge/llama.cpp-Vulkan%20Accelerated-cbd5e1.svg?style=flat-square)](https://github.com/ggml-org/llama.cpp)
+[![llama.cpp: Vulkan / ROCm](https://img.shields.io/badge/llama.cpp-Vulkan%20%2F%20ROCm-cbd5e1.svg?style=flat-square)](https://github.com/ggml-org/llama.cpp)
 [![Herdr: Integrated](https://img.shields.io/badge/Herdr-Native%20Workspace-7eb8da.svg?style=flat-square)](https://github.com/herdr/herdr)
+
+---
+
+## 🖥️ Screenshots
+
+### Fold Pastel Web UI & Live Agent Fleet
+![Fold Web UI](docs/assets/fold_web_ui.png)
+
+### Model Auto-Inspector & Hardware Tuning Wizard (Gemma-4 & Quantized Support)
+![Fold Deploy Wizard](docs/assets/fold_dashboard.png)
+
+### Herdr Terminal Chat & Pure-Python Model Inspection
+![Fold Terminal Chat](docs/assets/fold_terminal.png)
 
 ---
 
@@ -21,7 +34,10 @@ Fold introduces an elegant, modern visual identity inspired by origami papercraf
 - **Clean Responsive Layout**: Identical workflow placement with rounded modern cards, subtle ambient glows, and clean typography.
 
 <p align="center">
-  <img src="docs/assets/fold_sheep.jpeg" alt="Fold Origami Sheep Fleet" width="550" style="border-radius: 8px;" />
+  <img src="docs/assets/sheep_sage.png" width="115" alt="Sage Green Origami Sheep" />
+  <img src="docs/assets/sheep_blue.png" width="115" alt="Sky Blue Origami Sheep" />
+  <img src="docs/assets/sheep_cream.png" width="115" alt="Cream Origami Sheep" />
+  <img src="docs/assets/sheep_pink.png" width="115" alt="Pastel Pink Origami Sheep" />
 </p>
 
 ---
@@ -109,14 +125,18 @@ fold spawn sage
 
 ## 🧠 Key Features
 
-### 1. Pure-Python GGUF Auto-Inspection
-- Reads GGUF v2/v3 binary structures without third-party dependencies.
-- Extracts architecture (`llama`, `qwen2`, `mistral`, `gemma`, `phi3`), quantization format, layer count, context window size, and chat template strings.
+### 1. Pure-Python GGUF Auto-Inspection & Multi-Architecture Engine
+- Reads GGUF v2/v3 binary structures without third-party dependencies in milliseconds.
+- Robust multi-architecture support: `gemma4`, `gemma3`, `gemma2`, `llama`, `qwen2`, `mistral`, `devstral`, `glm`, `deepseek`, `phi3`.
+- Safely parses sliding-window attention and variable per-layer KV head arrays (`head_count_kv = [8, 8, ...]`) found in modern Gemma-4 and Gemma-2 architectures, calculating exact KV cache memory footprints.
+- Automatically discovers chat template formats (`gemma4`, `llama3`, `chatml`, `mistral`, `deepseek`) and applies `--jinja` flag.
 
-### 2. Hardware-Aware Optimal Configuration
-- Automatically calculates CPU physical/logical threads and detects discrete GPUs (AMD Radeon RX 7900 XTX via Vulkan, NVIDIA via CUDA).
-- Calculates the optimal `--n-gpu-layers` based on available VRAM and parameter sizes.
-- Prevents resource exhaustion by sizing batch sizes and context memory to physical limits.
+### 2. Advanced Quantization & Sharded Model Architecture
+- **Expanded Quant Support**: Full compatibility with modern quantization types including `MXFP4`, `IQ4_NL`, `IQ4_XS`, `IQ3_XXS`, `UD-Q4_K_XL`, `TQ1_0`, `TQ2_0`, `Q4_0_4_4`, and standard K-quants (`Q4_K_M`, `Q8_0`).
+- **Multi-Part / Sharded GGUF Discovery**: Automatically discovers and aggregates multi-shard model files (`model-00001-of-0000X.gguf`), computing cumulative parameter weight and total VRAM requirements across all parts.
+- **Hardware-Aware Optimal Offloading**: Calculates CPU physical/logical threads and detects discrete GPUs (AMD Radeon RX 7900 XTX / 7900 GRE via Vulkan & ROCm, NVIDIA via CUDA). Automatically determines optimal `--n-gpu-layers` and batch sizing.
+- **Dynamic Startup Timeout Scaling**: Automatically scales initialization timeouts up to 300 seconds for massive models (>70GB) to prevent premature timeouts during weight verification.
+- **Large-Model Memory Tuning**: Automatically applies `--no-mmap` for massive models (>40GB) or unified memory setups to prevent system thrashing.
 
 ### 3. Native Herdr Workspace Integration
 - **CLI Executable**: Automatically creates an executable launcher at `~/.local/bin/<agent_name>`.

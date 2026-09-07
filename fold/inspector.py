@@ -49,7 +49,28 @@ GGUF_FILE_TYPE_NAMES = {
     30: "MOSTLY_IQ4_XS",
     31: "MOSTLY_IQ1_M",
     32: "MOSTLY_BF16",
+    33: "MOSTLY_Q4_0_4_4",
+    34: "MOSTLY_Q4_0_4_8",
+    35: "MOSTLY_Q4_0_8_8",
+    36: "MOSTLY_TQ1_0",
+    37: "MOSTLY_TQ2_0",
+    38: "MOSTLY_MXFP4",
 }
+
+
+def _extract_int(val: Any, default: int = 0) -> int:
+    """Safely extracts an integer from numbers, numeric strings, or lists of numbers."""
+    if val is None:
+        return default
+    if isinstance(val, (int, float)):
+        return int(val)
+    if isinstance(val, list):
+        numbers = [int(x) for x in val if isinstance(x, (int, float))]
+        return max(numbers) if numbers else default
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return default
 
 
 @dataclass
@@ -171,6 +192,14 @@ class GGUFInspector:
         target = validate_model_path(str(file_path))
         file_size = target.stat().st_size
 
+        # Multi-part / Sharded GGUF detection (e.g., -00001-of-00005.gguf)
+        shard_match = re.search(r"-(\d{5})-of-(\d{5})\.gguf$", target.name, re.IGNORECASE)
+        if shard_match:
+            base_pattern = re.sub(r"-\d{5}-of-\d{5}\.gguf$", "-*-of-*.gguf", target.name)
+            shard_files = sorted(target.parent.glob(base_pattern))
+            if shard_files:
+                file_size = sum(f.stat().st_size for f in shard_files)
+
         kv_data: Dict[str, Any] = {}
 
         with open(target, "rb") as f:
@@ -198,40 +227,60 @@ class GGUFInspector:
             or target.stem
         )
 
-        file_type_code = kv_data.get("general.file_type", 15)
-        quantization = GGUF_FILE_TYPE_NAMES.get(file_type_code, f"TYPE_{file_type_code}")
+        file_type_code = kv_data.get("general.file_type")
+        quantization = GGUF_FILE_TYPE_NAMES.get(file_type_code) if file_type_code is not None else None
+        if not quantization or quantization.startswith("TYPE_"):
+            # Fallback to pattern matching from filename (e.g. Q4_K_M, IQ4_NL, UD-Q4_K_XL, MXFP4)
+            quant_match = re.search(
+                r"(UD-[A-Z0-9_]+|IQ[1-4]_[A-Z0-9_]+|Q[2-8]_[A-Z0-9_]+|MXFP[0-9_A-Z]+|BF16|F16|F32)",
+                target.name,
+                re.IGNORECASE,
+            )
+            if quant_match:
+                quantization = quant_match.group(1).upper()
+            elif file_type_code is not None:
+                quantization = f"TYPE_{file_type_code}"
+            else:
+                quantization = "UNKNOWN"
 
         # Layer count / block count
-        layer_count = int(
+        layer_count = _extract_int(
             kv_data.get(f"{arch}.block_count")
-            or kv_data.get("block_count")
-            or 32
+            or kv_data.get("block_count"),
+            default=32,
         )
 
         # Context length
-        context_len = int(
+        context_len = _extract_int(
             kv_data.get(f"{arch}.context_length")
-            or kv_data.get("context_length")
-            or 8192
+            or kv_data.get("context_length"),
+            default=8192,
         )
 
-        embedding_len = int(
+        embedding_len = _extract_int(
             kv_data.get(f"{arch}.embedding_length")
-            or kv_data.get("embedding_length")
-            or 4096
+            or kv_data.get("embedding_length"),
+            default=4096,
         )
 
-        head_count = int(
+        head_count = _extract_int(
             kv_data.get(f"{arch}.attention.head_count")
-            or kv_data.get("head_count")
-            or 32
+            or kv_data.get("head_count"),
+            default=32,
         )
 
-        head_count_kv = int(
+        # Handle architectures like Gemma 4 where head_count_kv is a list of ints per layer
+        raw_head_count_kv = (
             kv_data.get(f"{arch}.attention.head_count_kv")
             or kv_data.get("head_count_kv")
-            or head_count
         )
+        if isinstance(raw_head_count_kv, list):
+            valid_nums = [int(x) for x in raw_head_count_kv if isinstance(x, (int, float))]
+            head_count_kv = max(valid_nums) if valid_nums else head_count
+            total_kv_heads = sum(valid_nums) if valid_nums else (layer_count * head_count_kv)
+        else:
+            head_count_kv = _extract_int(raw_head_count_kv, default=head_count)
+            total_kv_heads = layer_count * head_count_kv
 
         chat_template = kv_data.get("tokenizer.chat_template")
         if not isinstance(chat_template, str):
@@ -239,13 +288,14 @@ class GGUFInspector:
 
         template_kind = cls.detect_template_kind(chat_template, arch, model_name)
 
-        # Calculate estimated VRAM requirement (weights + 4k context KV cache buffer)
+        # Calculate estimated VRAM requirement (weights + KV cache buffer)
         weights_mb = int(file_size / (1024 * 1024))
-        # KV cache estimate for context = 4096: 2 * n_layers * n_kv_heads * head_dim * n_ctx * bytes_per_elem
         head_dim = embedding_len // max(1, head_count)
-        kv_bytes_per_token = 2 * layer_count * head_count_kv * head_dim * 2  # fp16
-        kv_cache_4k_mb = int((kv_bytes_per_token * 4096) / (1024 * 1024))
-        est_vram_mb = weights_mb + kv_cache_4k_mb + 256  # 256MB overhead
+        # KV cache estimate: 2 (K+V) * total_kv_heads * head_dim * bytes_per_elem (fp16 = 2)
+        kv_bytes_per_token = 2 * total_kv_heads * head_dim * 2
+        est_ctx = min(context_len, 8192)
+        kv_cache_mb = int((kv_bytes_per_token * est_ctx) / (1024 * 1024))
+        est_vram_mb = weights_mb + kv_cache_mb + 256  # 256MB overhead
 
         return ModelMetadata(
             file_path=str(target),
@@ -276,14 +326,16 @@ class GGUFInspector:
             return "chatml"
         elif "<|start_header_id|>" in content or "llama-3" in name or "llama3" in name:
             return "llama-3"
-        elif "[inst]" in content or "mistral" in name or "mixtral" in name:
+        elif "[inst]" in content or "mistral" in name or "mixtral" in name or "devstral" in name:
             return "mistral"
         elif "<start_of_turn>" in content or "gemma" in name or "gemma" in arch:
             return "gemma"
         elif "<|user|>" in content or "phi-3" in name or "phi3" in name or "phi" in arch:
             return "phi-3"
-        elif "deepseek" in name or "<｜user｜>" in content:
+        elif "deepseek" in name or "<｜user｜>" in content or "deepseek" in arch:
             return "deepseek"
+        elif "glm" in name or "glm" in arch:
+            return "chatml"
         return "chatml"  # Universal modern fallback for instruct models
 
 
@@ -401,6 +453,21 @@ def analyze_model_and_recommend(
 
     # Threads
     threads = hw.recommended_threads
+
+    # Sharded multi-part model notes
+    if "-00001-of-" in path.name:
+        shard_match = re.search(r"-(\d{5})-of-(\d{5})\.gguf$", path.name, re.IGNORECASE)
+        if shard_match:
+            total_shards = int(shard_match.group(2))
+            notes.append(f"Sharded model: {total_shards} parts detected (total size {meta.file_size_gb} GB). llama.cpp will automatically load all shards.")
+
+    # Large model notes
+    if meta.file_size_gb > 25:
+        notes.append(f"Large model ({meta.file_size_gb} GB): high-capacity model; extended startup timeout allocated.")
+
+    # Gemma architecture notes
+    if "gemma" in meta.architecture.lower() or "gemma" in meta.model_name.lower():
+        notes.append("Gemma architecture: configured with Gemma chat template and sliding-window KV attention.")
 
     # Batch sizes
     batch_size = 2048
