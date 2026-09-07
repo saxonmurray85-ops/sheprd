@@ -81,7 +81,7 @@ Sheprd reads binary headers in milliseconds to determine layer count, context le
 sheprd inspect ~/.local/share/sheprd/models/qwen2.5-0.5b-instruct-q4_k_m.gguf
 ```
 
-### 3. Launch the Digital Green Web UI
+### 3. Launch the Web UI
 
 ```bash
 sheprd web
