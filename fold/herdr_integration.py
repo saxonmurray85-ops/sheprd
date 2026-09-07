@@ -53,13 +53,15 @@ class HerdrIntegration:
 
         repo_root = Path(__file__).resolve().parent.parent
         script_content = f"""#!/usr/bin/env bash
-# Auto-generated Sheprd launcher for '{clean_name}'
+# Auto-generated Fold launcher for '{clean_name}'
 # Spawns or connects to the '{clean_name}' llama.cpp agent session.
-if command -v sheprd >/dev/null 2>&1; then
+if command -v fold >/dev/null 2>&1; then
+    exec fold chat "{clean_name}" "$@"
+elif command -v sheprd >/dev/null 2>&1; then
     exec sheprd chat "{clean_name}" "$@"
 else
     export PYTHONPATH="{repo_root}:${{PYTHONPATH:-}}"
-    exec /usr/bin/python3 -m sheprd.interactive_chat "{clean_name}" "$@"
+    exec /usr/bin/python3 -m fold.interactive_chat "{clean_name}" "$@"
 fi
 """
 
@@ -169,9 +171,9 @@ fi
             subprocess.run(
                 [
                     "herdr", "pane", "report-metadata",
-                    "--source", "sheprd",
+                    "--source", "fold",
                     "--display-agent", agent_name,
-                    "--title", f"Sheprd: {agent_name} [{role}]",
+                    "--title", f"Fold: {agent_name} [{role}]",
                     pane_id,
                 ],
                 stdout=subprocess.DEVNULL,
@@ -184,7 +186,7 @@ fi
             subprocess.run(
                 [
                     "herdr", "pane", "report-agent",
-                    "--source", "sheprd",
+                    "--source", "fold",
                     "--agent", agent_name,
                     "--state", state,
                     pane_id,

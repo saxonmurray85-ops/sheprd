@@ -1,6 +1,6 @@
 /**
- * Sheprd Frontend Controller
- * Digital Green UI, real-time agent lifecycle, GGUF inspection, Herdr spawning.
+ * Fold Frontend Controller
+ * Pastel Blue, Sage & Grey UI, Origami Sheep Avatars, real-time agent lifecycle, GGUF inspection, Herdr spawning.
  */
 
 let state = {
@@ -30,7 +30,7 @@ const PERSONA_PRESETS = {
     job: "Synthesize complex technical concepts, compare architectures, and provide step-by-step guides.",
   },
   assistant: {
-    identity: "General Digital Green Shepherd Assistant",
+    identity: "Fold Fleet Navigator & Assistant",
     personality: "Helpful, alert, articulate, and proactive.",
     job: "Assist with day-to-day coding, terminal commands, and general queries.",
   }
@@ -42,16 +42,19 @@ function getCsrfToken() {
   return meta ? meta.getAttribute('content') : '';
 }
 
-// Intercept fetch to automatically include X-Sheprd-Token on mutating requests (S2)
+// Intercept fetch to automatically include X-Fold-Token on mutating requests (S2)
 const originalFetch = window.fetch;
 window.fetch = function(url, options = {}) {
   const method = (options.method || 'GET').toUpperCase();
   if (method !== 'GET') {
     options.headers = options.headers || {};
+    const token = getCsrfToken();
     if (options.headers instanceof Headers) {
-      options.headers.set('X-Sheprd-Token', getCsrfToken());
+      options.headers.set('X-Fold-Token', token);
+      options.headers.set('X-Sheprd-Token', token);
     } else {
-      options.headers['X-Sheprd-Token'] = getCsrfToken();
+      options.headers['X-Fold-Token'] = token;
+      options.headers['X-Sheprd-Token'] = token;
     }
   }
   return originalFetch(url, options);
@@ -184,6 +187,41 @@ function setupSSE() {
   }
 }
 
+// Origami Sheep SVG Avatar Generator (Pastel Blue, Sage Green, Slate Grey, Cream)
+function getOrigamiSheepSvg(hue = "blue") {
+  let b1 = "#cbd5e1", b2 = "#94a3b8", b3 = "#f1f5f9", b4 = "#7eb8da", b5 = "#64748b";
+  let ear1 = "#88b79b", ear2 = "#a7c4b5";
+  let leg1 = "#475569", leg2 = "#334155";
+  
+  if (hue === "green" || hue === "sage") {
+    b4 = "#88b79b"; ear1 = "#7eb8da"; ear2 = "#bae6fd";
+  } else if (hue === "grey" || hue === "slate") {
+    b4 = "#cbd5e1"; ear1 = "#94a3b8"; ear2 = "#cbd5e1";
+  } else if (hue === "cream") {
+    b3 = "#fef3c7"; b4 = "#fde68a"; ear1 = "#88b79b"; ear2 = "#a7c4b5";
+  }
+
+  return `
+    <svg viewBox="0 0 100 100" class="origami-sheep-svg" xmlns="http://www.w3.org/2000/svg">
+      <polygon points="32,36 66,32 82,46 62,62" fill="${b1}" />
+      <polygon points="32,36 62,62 40,64 26,50" fill="${b2}" />
+      <polygon points="66,32 82,46 90,42 78,28" fill="${b3}" />
+      <polygon points="62,62 82,46 86,60 70,68" fill="${b4}" />
+      <polygon points="82,46 90,42 86,60" fill="${b5}" />
+      <polygon points="36,62 40,82 45,63" fill="${leg1}" />
+      <polygon points="43,63 48,84 51,62" fill="${leg2}" />
+      <polygon points="70,67 74,84 78,66" fill="${leg1}" />
+      <polygon points="78,66 82,82 85,63" fill="${leg2}" />
+      <polygon points="26,40 10,34 22,46" fill="${ear1}" />
+      <polygon points="34,34 30,20 40,28" fill="${ear2}" />
+      <polygon points="25,37 38,32 36,48 22,46" fill="#f8fafc" />
+      <polygon points="22,46 36,48 26,64" fill="#e2e8f0" />
+      <polygon points="22,46 26,64 16,52" fill="#cbd5e1" />
+      <polygon points="28,44 30,46 27,47" fill="#334155" />
+    </svg>
+  `;
+}
+
 // Render Agent Grid
 function renderAgents(agents) {
   const container = document.getElementById("agents-grid");
@@ -192,13 +230,15 @@ function renderAgents(agents) {
   if (agents.length === 0) {
     container.innerHTML = `
       <div style="grid-column: 1 / -1; text-align: center; padding: 48px; border: 1px dashed var(--border-green); border-radius: 6px;">
-        <h3 style="color: var(--accent-green); margin-bottom: 12px;">No agents deployed yet</h3>
-        <p style="color: var(--text-dim); margin-bottom: 18px;">Deploy a llama.cpp model to spin up your first digital green agent.</p>
+        <h3 style="color: var(--accent-blue); margin-bottom: 12px;">No agents deployed yet</h3>
+        <p style="color: var(--text-dim); margin-bottom: 18px;">Deploy a llama.cpp model to spin up your first Fold agent.</p>
         <button class="btn btn-primary" onclick="switchTab('deploy-tab')">+ Deploy New Agent</button>
       </div>
     `;
     return;
   }
+
+  const sheepHues = ["blue", "green", "grey", "cream"];
 
   container.innerHTML = agents.map(agent => {
     const isRunning = agent.status === "running";
@@ -206,14 +246,21 @@ function renderAgents(agents) {
     const statusText = isRunning ? `ONLINE (:${agent.port})` : agent.status.toUpperCase();
     const modelBase = agent.model_path.split("/").pop();
 
+    const hueIdx = Math.abs(agent.name.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0)) % sheepHues.length;
+    const sheepSvg = getOrigamiSheepSvg(sheepHues[hueIdx]);
     const groupsHtml = agent.groups.map(g => `<span class="meta-pill">grp: <strong>${escapeHtml(g)}</strong></span>`).join(" ");
 
     return `
       <div class="agent-card" id="card-${agent.name}">
         <div class="agent-card-header">
-          <div>
-            <div class="agent-name">${escapeHtml(agent.name)}</div>
-            <div class="agent-identity">${escapeHtml(agent.identity)}</div>
+          <div class="agent-header-left">
+            <div class="agent-origami-avatar">
+              ${sheepSvg}
+            </div>
+            <div>
+              <div class="agent-name">${escapeHtml(agent.name)}</div>
+              <div class="agent-identity">${escapeHtml(agent.identity)}</div>
+            </div>
           </div>
           <span class="status-badge ${statusClass}">● ${statusText}</span>
         </div>
@@ -651,7 +698,7 @@ async function promptGroupBroadcast(groupName) {
       skipped.forEach(s => {
         summary += `• ${s.name}: ${s.reason}\n`;
       });
-      summary += `\nTip: To run multiple agents concurrently, set SHEPRD_MAX_ACTIVE_MODELS=N in your environment.\n`;
+      summary += `\nTip: To run multiple agents concurrently, set FOLD_MAX_ACTIVE_MODELS=N in your environment.\n`;
     }
     alert(summary);
   } catch (err) {
@@ -738,7 +785,7 @@ const MCP_PRESETS = {
   sqlite: {
     name: "sqlite",
     command: "uvx",
-    args: "mcp-server-sqlite --db-path ./sheprd.db",
+    args: "mcp-server-sqlite --db-path ./fold.db",
     desc: "Direct database queries and schema inspection on SQLite",
   },
   filesystem: {

@@ -1,7 +1,7 @@
 """
-Web application backend for Sheprd.
-Provides RESTful APIs, Server-Sent Events (SSE), and static file serving
-using Python's native aiohttp async server.
+Web application backend for Fold.
+Exposes REST APIs for fleet management, agent deployment, hardware inspection,
+hot-swapping, multi-agent broadcasts, tool inspection, and MCP server configuration.
 """
 
 import asyncio
@@ -10,43 +10,39 @@ import logging
 import os
 import secrets
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
-import aiohttp
 from aiohttp import web
 
 from ..database import Database
 from ..herdr_integration import HerdrIntegration
 from ..inspector import HardwareInspector, analyze_model_and_recommend
-from ..multi_agent import MultiAgentRouter
-from ..security import (
-    SecurityError,
-    get_or_create_api_token,
-    mask_token,
-    validate_agent_name,
-    validate_context_size,
-    validate_gpu_layers,
-    validate_groups,
-    validate_model_path,
-    validate_port,
-)
 from ..mcp_smithery import (
     FEATURED_MCP_CATALOG,
     parse_mcp_install_string,
     search_smithery_registry,
     sync_external_client_configs,
 )
-from ..prompts import build_agent_system_prompt
+from ..multi_agent import MultiAgentRouter
+from ..security import (
+    SecurityError,
+    get_or_create_api_token,
+    mask_token,
+    validate_agent_name,
+    validate_group_name,
+    validate_model_path,
+    validate_port,
+)
 from ..server_manager import ServerManager
 from ..telegram_service import TelegramServiceManager
 from ..tool_hub import ToolHub
 
 
-logger = logging.getLogger("sheprd.web")
+logger = logging.getLogger("fold.web")
 WEB_DIR = Path(__file__).parent
 
 
-class SheprdWebApp:
+class FoldWebApp:
     def __init__(self, db: Optional[Database] = None, host: str = "127.0.0.1", port: int = 8765):
         self.host = host
         self.port = port
@@ -62,13 +58,13 @@ class SheprdWebApp:
         self._setup_routes()
 
     async def _on_startup(self, app: web.Application) -> None:
-        logger.info("Sheprd web app starting: syncing all active Telegram bots...")
+        logger.info("Fold web app starting: syncing all active Telegram bots...")
         await self.telegram_mgr.sync_all()
         # Auto-sync any existing external client configs (Claude/Cursor/Smithery)
         await asyncio.to_thread(sync_external_client_configs, self.db)
 
     async def _on_cleanup(self, app: web.Application) -> None:
-        logger.info("Sheprd web app shutting down: stopping Telegram bots and MCP servers...")
+        logger.info("Fold web app shutting down: stopping Telegram bots and MCP servers...")
         await self.telegram_mgr.stop_all()
         self.tool_hub.mcp_mgr.stop_all()
 
@@ -93,10 +89,10 @@ class SheprdWebApp:
             if fetch_site == "cross-site":
                 return web.json_response({"error": "Forbidden: Cross-site request rejected (S2)."}, status=403)
 
-            # 3. Unconditionally enforce X-Sheprd-Token header (N5)
-            token = request.headers.get("X-Sheprd-Token")
+            # 3. Unconditionally enforce X-Fold-Token / X-Sheprd-Token header (N5)
+            token = request.headers.get("X-Fold-Token") or request.headers.get("X-Sheprd-Token")
             if not token or not secrets.compare_digest(token, self.csrf_token):
-                return web.json_response({"error": "Forbidden: Missing or invalid X-Sheprd-Token (S2/N5)."}, status=403)
+                return web.json_response({"error": "Forbidden: Missing or invalid X-Fold-Token (S2/N5)."}, status=403)
 
         return await handler(request)
 
@@ -145,7 +141,7 @@ class SheprdWebApp:
     async def handle_index(self, request: web.Request) -> web.Response:
         index_file = WEB_DIR / "templates/index.html"
         if not index_file.exists():
-            return web.Response(text="Sheprd UI template missing.", status=500)
+            return web.Response(text="Fold UI template missing.", status=500)
         html = index_file.read_text(encoding="utf-8")
         html = html.replace('<!-- CSRF_TOKEN -->', f'<meta name="csrf-token" content="{self.csrf_token}">')
         return web.Response(text=html, content_type="text/html")
@@ -793,7 +789,11 @@ class SheprdWebApp:
         await runner.setup()
         site = web.TCPSite(runner, self.host, self.port)
         await site.start()
-        logger.info("Sheprd Web UI active at http://%s:%s", self.host, self.port)
+        logger.info("Fold Web UI active at http://%s:%s", self.host, self.port)
+
+
+# Compatibility alias
+SheprdWebApp = FoldWebApp
 
 
 def run_web(host: str = "127.0.0.1", port: int = 8765):
@@ -803,5 +803,5 @@ def run_web(host: str = "127.0.0.1", port: int = 8765):
         format="[%(asctime)s] %(levelname)s [%(name)s]: %(message)s",
         datefmt="%H:%M:%S",
     )
-    webapp = SheprdWebApp(host=host, port=port)
+    webapp = FoldWebApp(host=host, port=port)
     web.run_app(webapp.app, host=host, port=port)

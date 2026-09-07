@@ -17,7 +17,7 @@ from .database import AgentRecord, Database
 from .mcp_client import MCPManager, MCPServerInfo
 
 
-logger = logging.getLogger("sheprd.tools.hub")
+logger = logging.getLogger("fold.tools.hub")
 
 
 class ToolHub:

@@ -3,19 +3,41 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sheprd // llama.cpp Agent Orchestrator</title>
+  <title>Fold // llama.cpp Agent Orchestrator</title>
   <!-- CSRF_TOKEN -->
-  <link rel="stylesheet" href="/static/css/digital_green.css">
+  <link rel="stylesheet" href="/static/css/fold.css">
 </head>
 <body>
 
   <!-- Header & System Telemetry -->
   <header>
     <a href="#" class="brand">
-      <span class="brand-icon">⚡</span>
-      <div>
-        <div class="brand-title">Sheprd</div>
-        <div class="brand-sub">LLAMA.CPP AGENT ORCHESTRATOR</div>
+      <div class="brand-icon-wrapper">
+        <svg viewBox="0 0 100 100" class="brand-origami-svg" xmlns="http://www.w3.org/2000/svg">
+          <!-- Origami Sheep (Pastel Sky Blue, Sage, Cream, Slate) -->
+          <!-- Body facets -->
+          <polygon points="32,36 66,32 82,46 62,62" fill="#cbd5e1" />
+          <polygon points="32,36 62,62 40,64 26,50" fill="#94a3b8" />
+          <polygon points="66,32 82,46 90,42 78,28" fill="#f1f5f9" />
+          <polygon points="62,62 82,46 86,60 70,68" fill="#7eb8da" />
+          <polygon points="82,46 90,42 86,60" fill="#64748b" />
+          <!-- Origami Legs -->
+          <polygon points="36,62 40,82 45,63" fill="#475569" />
+          <polygon points="43,63 48,84 51,62" fill="#334155" />
+          <polygon points="70,67 74,84 78,66" fill="#475569" />
+          <polygon points="78,66 82,82 85,63" fill="#334155" />
+          <!-- Head / Ears / Face -->
+          <polygon points="26,40 10,34 22,46" fill="#88b79b" />
+          <polygon points="34,34 30,20 40,28" fill="#a7c4b5" />
+          <polygon points="25,37 38,32 36,48 22,46" fill="#f8fafc" />
+          <polygon points="22,46 36,48 26,64" fill="#e2e8f0" />
+          <polygon points="22,46 26,64 16,52" fill="#cbd5e1" />
+          <polygon points="28,44 30,46 27,47" fill="#334155" />
+        </svg>
+      </div>
+      <div class="brand-title-group">
+        <div class="brand-title">Fold<span class="title-accent">.</span></div>
+        <div class="brand-sub">LLAMA.CPP AGENT FLEET &amp; HERDR</div>
       </div>
     </a>
 
@@ -76,7 +98,7 @@
     <section id="deploy-tab" class="tab-content">
       <div class="section-header">
         <h2 class="section-title"><span>+</span> Spin Up New Agent</h2>
-        <span style="font-size: 12px; color: var(--text-dim);">Enter model path; Sheprd extracts architecture and configures execution.</span>
+        <span style="font-size: 12px; color: var(--text-dim);">Enter model path; Fold extracts architecture and configures execution.</span>
       </div>
 
       <div class="form-panel">
@@ -91,14 +113,14 @@
                   type="text" 
                   id="form-model-path" 
                   class="form-control" 
-                  placeholder="/home/sachsen/.local/share/sheprd/models/qwen2.5-0.5b-instruct-q4_k_m.gguf" 
+                  placeholder="/home/sachsen/.local/share/fold/models/qwen2.5-0.5b-instruct-q4_k_m.gguf" 
                   required
                 >
                 <button type="button" class="btn btn-primary" id="btn-inspect-model">
                   🔍 Auto-Inspect Model
                 </button>
               </div>
-              <span class="help-text">Point to any local GGUF file. Sheprd parses GGUF headers and optimizes GPU offload layers.</span>
+              <span class="help-text">Point to any local GGUF file. Fold parses GGUF headers and optimizes GPU offload layers.</span>
             </div>
 
             <!-- Inspection Result Card (Appears after inspection) -->
@@ -275,7 +297,7 @@
               Select an agent to begin chat
             </div>
             <div>
-              <span style="font-size: 11px; color: var(--text-dim);">Digital Green Console</span>
+              <span style="font-size: 11px; color: var(--text-dim);">Fold Terminal Console</span>
             </div>
           </div>
           <div class="chat-messages" id="chat-messages">
@@ -319,7 +341,7 @@
           <span class="tool-badge core">Instant Auto-Setup</span>
         </div>
         <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 12px; line-height: 1.4;">
-          Paste any Smithery URL (e.g. <code>https://smithery.ai/server/@smithery-ai/fetch</code>), package identifier (<code>@smithery-ai/fetch</code>), terminal command (<code>npx ...</code> / <code>uvx ...</code>), or Claude config snippet. Sheprd immediately registers, tests, and hooks the tools.
+          Paste any Smithery URL (e.g. <code>https://smithery.ai/server/@smithery-ai/fetch</code>), package identifier (<code>@smithery-ai/fetch</code>), terminal command (<code>npx ...</code> / <code>uvx ...</code>), or Claude config snippet. Fold immediately registers, tests, and hooks the tools.
         </div>
         <form id="quick-mcp-form" onsubmit="handleQuickMCPInstall(event)" style="display: flex; gap: 10px;">
           <input type="text" id="quick-mcp-input" class="form-control" placeholder="Paste Smithery URL, @package-name, or npx/uvx command..." style="flex: 1;" required>
@@ -327,7 +349,7 @@
         </form>
         <div style="font-size: 11px; color: var(--text-dim); margin-top: 8px; display: flex; align-items: center; gap: 6px;">
           <span>💡</span>
-          <span><strong>Smithery auto-sync:</strong> Clicking "Install" on Smithery with <em>Claude Desktop</em> selected writes to your local config. Sheprd auto-imports it on startup or with <strong>↻ Sync</strong>!</span>
+          <span><strong>Smithery auto-sync:</strong> Clicking "Install" on Smithery with <em>Claude Desktop</em> selected writes to your local config. Fold auto-imports it on startup or with <strong>↻ Sync</strong>!</span>
         </div>
       </div>
 

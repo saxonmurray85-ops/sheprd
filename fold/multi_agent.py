@@ -17,7 +17,7 @@ from .prompts import build_agent_system_prompt
 from .security import SecurityError
 
 
-logger = logging.getLogger("sheprd.multi_agent")
+logger = logging.getLogger("fold.multi_agent")
 AGENT_HUB_DB = Path.home() / ".agent-hub/data/memory.db"
 
 
@@ -78,7 +78,7 @@ class MultiAgentRouter:
         req = urllib.request.Request(
             url,
             data=req_data,
-            headers={"Content-Type": "application/json", "User-Agent": f"Sheprd-Agent/{caller_name}"},
+            headers={"Content-Type": "application/json", "User-Agent": f"Fold-Agent/{caller_name}"},
         )
 
         try:
@@ -128,7 +128,7 @@ class MultiAgentRouter:
             if member.status != "running":
                 skipped.append({
                     "name": member.name,
-                    "reason": "not active (LRU cap — raise SHEPRD_MAX_ACTIVE_MODELS to run concurrently)",
+                    "reason": "not active (LRU cap — raise FOLD_MAX_ACTIVE_MODELS to run concurrently)",
                 })
                 continue
 
@@ -151,27 +151,27 @@ class MultiAgentRouter:
     def sync_with_agent_hub(self) -> bool:
         """
         If the local Agent-Hub database exists at ~/.agent-hub/data/memory.db,
-        syncs Sheprd's active callable models into shared memory for discovery.
+        syncs Fold's active callable models into shared memory for discovery.
         """
         if not AGENT_HUB_DB.exists():
             return False
 
         try:
+            agents = self.db.list_agents()
             active_agents = [
                 {
                     "name": a.name,
                     "identity": a.identity,
                     "job": a.job,
                     "port": a.port,
-                    "endpoint": f"http://127.0.0.1:{a.port}/v1",
-                    "model": Path(a.model_path).name,
+                    "model": a.model_architecture,
                     "groups": a.groups,
-                    "status": a.status,
+                    "tools": a.tools,
+                    "endpoint": f"http://127.0.0.1:{a.port}/v1",
                 }
-                for a in self.db.list_agents()
-                if a.callable_by_agents and a.status == "running"
+                for a in agents
+                if a.status == "running" and a.callable_by_agents
             ]
-
             payload_json = json.dumps(active_agents)
 
             conn = sqlite3.connect(AGENT_HUB_DB, timeout=5.0)
@@ -179,7 +179,7 @@ class MultiAgentRouter:
                 conn.execute(
                     """
                     INSERT INTO memories (namespace, key, value, tags, source)
-                    VALUES ('sheprd', 'active_agents', ?, 'sheprd,models,local', 'sheprd')
+                    VALUES ('fold', 'active_agents', ?, 'fold,models,local', 'fold')
                     ON CONFLICT(namespace, key) DO UPDATE SET
                         value = excluded.value,
                         tags = excluded.tags,
@@ -190,7 +190,7 @@ class MultiAgentRouter:
                 conn.execute(
                     """
                     INSERT INTO events (kind, source, message, payload)
-                    VALUES ('sheprd_sync', 'sheprd', 'Sheprd updated active local agents', ?)
+                    VALUES ('fold_sync', 'fold', 'Fold updated active local agents', ?)
                     """,
                     (payload_json,),
                 )

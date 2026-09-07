@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "sheprd"
-version = "0.1.0"
-description = "Digital Green llama.cpp agent orchestrator with Herdr workspace integration"
+name = "fold"
+version = "0.2.0"
+description = "Fold: llama.cpp Agent Fleet Orchestrator & Herdr Workspace Integration"
 readme = "README.md"
 authors = [{ name = "Sachsen", email = "sachsen@users.noreply.github.com" }]
 license = { text = "MIT" }
@@ -15,15 +15,17 @@ dependencies = [
 ]
 
 [project.scripts]
-sheprd = "sheprd.cli:main"
+fold = "fold.cli:main"
+sheprd = "fold.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["sheprd*"]
+include = ["fold*"]
 
 [tool.setuptools.package-data]
-sheprd = [
+fold = [
     "web/templates/*.html",
     "web/static/css/*.css",
     "web/static/js/*.js",
+    "web/static/img/*",
 ]

@@ -15,7 +15,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from .security import GGUF_MAGIC, SecurityError
 
 
-DEFAULT_MODELS_DIR = Path.home() / ".local/share/sheprd/models"
+LEGACY_MODELS_DIR = Path.home() / ".local/share/sheprd/models"
+DEFAULT_MODELS_DIR = Path.home() / ".local/share/fold/models"
 
 # Curated starter models optimized for quick setup and local performance
 STARTER_MODELS: Dict[str, Dict[str, Any]] = {

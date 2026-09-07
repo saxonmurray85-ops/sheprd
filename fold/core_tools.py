@@ -24,7 +24,7 @@ from html import unescape
 from html.parser import HTMLParser
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-logger = logging.getLogger("sheprd.tools.core")
+logger = logging.getLogger("fold.tools.core")
 
 
 # Safe expression evaluator for `calculate`
@@ -137,7 +137,7 @@ def tool_get_weather(location: str) -> str:
         return "Error: Location cannot be empty."
     encoded = urllib.parse.quote(clean_loc)
     url = f"https://wttr.in/{encoded}?format=j1"
-    req = urllib.request.Request(url, headers={"User-Agent": "Sheprd-Agent/1.0"})
+    req = urllib.request.Request(url, headers={"User-Agent": "Fold-Agent/1.0"})
     try:
         with urllib.request.urlopen(req, timeout=8) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -178,7 +178,7 @@ def tool_wikipedia_search(query: str) -> str:
         f"https://en.wikipedia.org/w/api.php?action=opensearch"
         f"&search={urllib.parse.quote(clean_query)}&limit=3&namespace=0&format=json"
     )
-    req = urllib.request.Request(search_url, headers={"User-Agent": "Sheprd-Agent/1.0"})
+    req = urllib.request.Request(search_url, headers={"User-Agent": "Fold-Agent/1.0"})
     try:
         with urllib.request.urlopen(req, timeout=8) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -189,7 +189,7 @@ def tool_wikipedia_search(query: str) -> str:
             # Fetch summary of top match
             top_title = titles[0]
             summary_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{urllib.parse.quote(top_title)}"
-            req_sum = urllib.request.Request(summary_url, headers={"User-Agent": "Sheprd-Agent/1.0"})
+            req_sum = urllib.request.Request(summary_url, headers={"User-Agent": "Fold-Agent/1.0"})
             with urllib.request.urlopen(req_sum, timeout=8) as resp_sum:
                 sum_data = json.loads(resp_sum.read().decode("utf-8"))
                 extract = sum_data.get("extract", "No summary available.")

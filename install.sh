@@ -1,31 +1,33 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Sheprd: Universal Linux Installer & Setup Script
-# Installs llama.cpp Vulkan runtime, Sheprd environment, and registers the CLI.
+# Fold: Universal Linux Installer & Setup Script
+# Installs llama.cpp Vulkan runtime, Fold environment, and registers the CLI.
 # Supports Ubuntu, Debian, Fedora, Arch, openSUSE, Alpine, and other distros.
 # ==============================================================================
 
 set -euo pipefail
 
-# ANSI Digital Green Styling
+# ANSI Pastel Styling (Sky Blue, Sage Green, Slate Grey, Cream)
 C_RESET="\033[0m"
 C_BOLD="\033[1m"
-C_GREEN="\033[38;5;48m"
-C_BRIGHT="\033[38;5;84m"
+C_BLUE="\033[38;5;117m"
+C_GREEN="\033[38;5;151m"
+C_BRIGHT_BLUE="\033[38;5;153m"
 C_DIM="\033[2m"
-C_CYAN="\033[38;5;51m"
-C_YELLOW="\033[38;5;220m"
-C_RED="\033[38;5;196m"
+C_SLATE="\033[38;5;248m"
+C_AMBER="\033[38;5;222m"
+C_RED="\033[38;5;217m"
 
-echo -e "${C_BRIGHT}"
-cat << 'EOF'
-  ___ _  _ ___ ___ ___ ___ 
- / __| || | __| _ \ _ \   \ 
- \__ \ __ | _||  _/   / |) |
- |___/_||_|___|_| |_|_\___/ 
-EOF
+echo -e "${C_BLUE}"
+cat << 'BANNER'
+  _____ ___  _     ____  
+ |  ___/ _ \| |   |  _ \ 
+ | |_ | | | | |   | | | |
+ |  _|| |_| | |___| |_| |
+ |_|   \___/|_____|____/ 
+BANNER
 echo -e "${C_RESET}"
-echo -e "${C_GREEN}${C_BOLD}Installing Sheprd // llama.cpp Agent Orchestrator...${C_RESET}\n"
+echo -e "${C_GREEN}${C_BOLD}Installing Fold // llama.cpp Agent Orchestrator...${C_RESET}\n"
 
 # Helper: download file with curl or wget
 download_file() {
@@ -75,32 +77,41 @@ case "${ARCH}" in
         ;;
     *)
         LLAMA_ARCH_SUPPORTED=false
-        echo -e "${C_YELLOW}Notice: Detected system architecture '${ARCH}'. Prebuilt Vulkan runtime is built for x86_64.${C_RESET}"
+        echo -e "${C_AMBER}Notice: Detected system architecture '${ARCH}'. Prebuilt Vulkan runtime is built for x86_64.${C_RESET}"
         ;;
 esac
 
 # 2. Directory Layout
 echo -e "${C_DIM}[2/5] Creating directory layout...${C_RESET}"
-SHEPRD_HOME="${HOME}/.local/share/sheprd"
-SHEPRD_BIN="${SHEPRD_HOME}/bin"
-SHEPRD_MODELS="${SHEPRD_HOME}/models"
-SHEPRD_LOGS="${SHEPRD_HOME}/logs"
-SHEPRD_LOCKS="${SHEPRD_HOME}/locks"
-SHEPRD_VENV="${SHEPRD_HOME}/venv"
+FOLD_HOME="${HOME}/.local/share/fold"
+FOLD_BIN="${FOLD_HOME}/bin"
+FOLD_MODELS="${FOLD_HOME}/models"
+FOLD_LOGS="${FOLD_HOME}/logs"
+FOLD_LOCKS="${FOLD_HOME}/locks"
+FOLD_VENV="${FOLD_HOME}/venv"
 LOCAL_BIN="${HOME}/.local/bin"
 
-mkdir -p "${SHEPRD_BIN}" "${SHEPRD_MODELS}" "${SHEPRD_LOGS}" "${SHEPRD_LOCKS}" "${LOCAL_BIN}" "${HOME}/.config/sheprd"
-chmod 700 "${SHEPRD_HOME}" "${HOME}/.config/sheprd" 2>/dev/null || true
+mkdir -p "${FOLD_BIN}" "${FOLD_MODELS}" "${FOLD_LOGS}" "${FOLD_LOCKS}" "${LOCAL_BIN}" "${HOME}/.config/fold"
+chmod 700 "${FOLD_HOME}" "${HOME}/.config/fold" 2>/dev/null || true
+
+# Check for legacy Sheprd data migration
+LEGACY_SHEPRD_HOME="${HOME}/.local/share/sheprd"
+if [ -d "${LEGACY_SHEPRD_HOME}/models" ] && [ ! -d "${FOLD_MODELS}/qwen2.5-0.5b-instruct-q4_k_m.gguf" ]; then
+    echo -e "${C_SLATE}  Found legacy models in ${LEGACY_SHEPRD_HOME}/models; preserving access.${C_RESET}"
+fi
 
 # 3. Check / Download llama.cpp Runtime
 echo -e "${C_DIM}[3/5] Checking llama.cpp binary bundle...${C_RESET}"
-if [ -f "${SHEPRD_BIN}/llama-server" ]; then
-    echo -e "${C_GREEN}  llama-server runtime is already present at ${SHEPRD_BIN}.${C_RESET}"
+if [ -f "${FOLD_BIN}/llama-server" ]; then
+    echo -e "${C_GREEN}  llama-server runtime is already present at ${FOLD_BIN}.${C_RESET}"
+elif [ -f "${LEGACY_SHEPRD_HOME}/bin/llama-server" ]; then
+    echo -e "${C_GREEN}  Using existing llama-server runtime from ${LEGACY_SHEPRD_HOME}/bin.${C_RESET}"
+    cp -r "${LEGACY_SHEPRD_HOME}/bin/"* "${FOLD_BIN}/" 2>/dev/null || true
 elif [ "${LLAMA_ARCH_SUPPORTED}" = true ]; then
-    echo -e "${C_CYAN}  Downloading prebuilt llama.cpp (Vulkan/x86_64 b10827)...${C_RESET}"
+    echo -e "${C_BLUE}  Downloading prebuilt llama.cpp (Vulkan/x86_64 b10827)...${C_RESET}"
     LLAMA_RELEASE_URL="https://github.com/ggml-org/llama.cpp/releases/download/b10827/llama-b10827-bin-ubuntu-vulkan-x64.tar.gz"
     EXPECTED_SHA256="9005df90e98f94bbf20b328104e4481a1a09fbc47c3039617923ffb1287fdcc4"
-    TEMP_TAR="/tmp/sheprd-llama-$$.tar.gz"
+    TEMP_TAR="/tmp/fold-llama-$$.tar.gz"
 
     if download_file "${LLAMA_RELEASE_URL}" "${TEMP_TAR}"; then
         ACTUAL_SHA256=""
@@ -116,30 +127,30 @@ elif [ "${LLAMA_ARCH_SUPPORTED}" = true ]; then
             exit 1
         fi
 
-        tar -xzf "${TEMP_TAR}" -C "${SHEPRD_BIN}" --strip-components=1
+        tar -xzf "${TEMP_TAR}" -C "${FOLD_BIN}" --strip-components=1
         rm -f "${TEMP_TAR}"
-        echo -e "${C_GREEN}  llama-server runtime verified and installed to ${SHEPRD_BIN}.${C_RESET}"
+        echo -e "${C_GREEN}  llama-server runtime verified and installed to ${FOLD_BIN}.${C_RESET}"
     else
-        echo -e "${C_YELLOW}  Notice: Could not download prebuilt bundle. Sheprd will look for llama-server on PATH or in ${SHEPRD_BIN}.${C_RESET}"
+        echo -e "${C_AMBER}  Notice: Could not download prebuilt bundle. Fold will look for llama-server on PATH or in ${FOLD_BIN}.${C_RESET}"
     fi
 else
-    echo -e "${C_YELLOW}  Notice: For architecture '${ARCH}', place a compatible llama-server binary in ${SHEPRD_BIN}/ or install it to your system PATH.${C_RESET}"
+    echo -e "${C_AMBER}  Notice: For architecture '${ARCH}', place a compatible llama-server binary in ${FOLD_BIN}/ or install it to your system PATH.${C_RESET}"
 fi
 
-# 4. Install Sheprd Package & Python Dependencies
-echo -e "${C_DIM}[4/5] Installing Sheprd environment and dependencies...${C_RESET}"
+# 4. Install Fold Package & Python Dependencies
+echo -e "${C_DIM}[4/5] Installing Fold environment and dependencies...${C_RESET}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 INSTALL_METHOD=""
 PYTHON_TARGET=""
 
 # Strategy A: Dedicated Virtual Environment (PEP 668 compliant across Ubuntu 24.04, Debian 12+, Arch, Fedora, etc.)
-if python3 -m venv "${SHEPRD_VENV}" 2>/dev/null; then
-    echo -e "${C_DIM}  Creating isolated virtual environment at ${SHEPRD_VENV}...${C_RESET}"
-    if "${SHEPRD_VENV}/bin/pip" install --quiet -e "${SCRIPT_DIR}" 2>/dev/null; then
+if python3 -m venv "${FOLD_VENV}" 2>/dev/null; then
+    echo -e "${C_DIM}  Creating isolated virtual environment at ${FOLD_VENV}...${C_RESET}"
+    if "${FOLD_VENV}/bin/pip" install --quiet -e "${SCRIPT_DIR}" 2>/dev/null; then
         INSTALL_METHOD="venv"
-        PYTHON_TARGET="${SHEPRD_VENV}/bin/python"
-        echo -e "${C_GREEN}  ✓ Installed Sheprd and dependencies inside isolated venv.${C_RESET}"
+        PYTHON_TARGET="${FOLD_VENV}/bin/python"
+        echo -e "${C_GREEN}  ✓ Installed Fold and dependencies inside isolated venv.${C_RESET}"
     fi
 fi
 
@@ -148,16 +159,16 @@ if [ -z "${INSTALL_METHOD}" ]; then
     if python3 -m pip install --user --break-system-packages -e "${SCRIPT_DIR}" 2>/dev/null; then
         INSTALL_METHOD="pip_break"
         PYTHON_TARGET="$(command -v python3)"
-        echo -e "${C_GREEN}  ✓ Installed Sheprd in user mode (--break-system-packages).${C_RESET}"
+        echo -e "${C_GREEN}  ✓ Installed Fold in user mode (--break-system-packages).${C_RESET}"
     fi
 fi
 
-# Strategy C: Standard pip install --user (for older distros without PEP 668, e.g. Ubuntu 20.04/22.04)
+# Strategy C: Standard pip install --user (for older distros without PEP 668)
 if [ -z "${INSTALL_METHOD}" ]; then
     if python3 -m pip install --user -e "${SCRIPT_DIR}" 2>/dev/null; then
         INSTALL_METHOD="pip_user"
         PYTHON_TARGET="$(command -v python3)"
-        echo -e "${C_GREEN}  ✓ Installed Sheprd in user mode via pip.${C_RESET}"
+        echo -e "${C_GREEN}  ✓ Installed Fold in user mode via pip.${C_RESET}"
     fi
 fi
 
@@ -172,7 +183,7 @@ fi
 
 # If all installation methods failed, provide distro-specific resolution instructions
 if [ -z "${INSTALL_METHOD}" ]; then
-    echo -e "${C_RED}Error: Unable to install Sheprd dependencies (aiohttp).${C_RESET}"
+    echo -e "${C_RED}Error: Unable to install Fold dependencies (aiohttp).${C_RESET}"
     echo -e "Please install python3-venv or python3-aiohttp using your package manager:\n"
     if command -v apt-get >/dev/null 2>&1; then
         echo -e "  ${C_BOLD}sudo apt update && sudo apt install -y python3-venv python3-pip python3-aiohttp${C_RESET}"
@@ -191,20 +202,28 @@ if [ -z "${INSTALL_METHOD}" ]; then
     exit 1
 fi
 
-# Generate the executable launcher in ~/.local/bin/sheprd
-cat << EOF > "${LOCAL_BIN}/sheprd"
+# Generate the executable launcher in ~/.local/bin/fold
+cat << INNER_EOF > "${LOCAL_BIN}/fold"
 #!/usr/bin/env bash
 export PYTHONPATH="${SCRIPT_DIR}:\${PYTHONPATH:-}"
-exec "${PYTHON_TARGET}" -m sheprd.cli "\$@"
-EOF
+exec "${PYTHON_TARGET}" -m fold.cli "\$@"
+INNER_EOF
+chmod +x "${LOCAL_BIN}/fold"
+
+# Generate backward-compatibility alias ~/.local/bin/sheprd
+cat << INNER_EOF > "${LOCAL_BIN}/sheprd"
+#!/usr/bin/env bash
+export PYTHONPATH="${SCRIPT_DIR}:\${PYTHONPATH:-}"
+exec "${PYTHON_TARGET}" -m fold.cli "\$@"
+INNER_EOF
 chmod +x "${LOCAL_BIN}/sheprd"
 
 # Verify the installed CLI runs cleanly
-if ! "${LOCAL_BIN}/sheprd" --help >/dev/null 2>&1; then
-    echo -e "${C_RED}Error: Sheprd CLI self-test failed after installation.${C_RESET}"
+if ! "${LOCAL_BIN}/fold" --help >/dev/null 2>&1; then
+    echo -e "${C_RED}Error: Fold CLI self-test failed after installation.${C_RESET}"
     exit 1
 fi
-echo -e "${C_GREEN}  ✓ Verified sheprd CLI operational.${C_RESET}"
+echo -e "${C_GREEN}  ✓ Verified fold CLI operational.${C_RESET}"
 
 # 5. Check Herdr Integration & Shell PATH
 echo -e "${C_DIM}[5/5] Checking environment & Herdr workspace integration...${C_RESET}"
@@ -228,7 +247,7 @@ if [[ ":$PATH:" != *":${LOCAL_BIN}:"* ]]; then
     if [ -n "${SHELL_RC}" ] && [ -f "${SHELL_RC}" ]; then
         if ! grep -q '.local/bin' "${SHELL_RC}"; then
             echo '' >> "${SHELL_RC}"
-            echo '# Added by Sheprd installer' >> "${SHELL_RC}"
+            echo '# Added by Fold installer' >> "${SHELL_RC}"
             echo 'export PATH="$HOME/.local/bin:$PATH"' >> "${SHELL_RC}"
             echo -e "${C_GREEN}  ✓ Added ${LOCAL_BIN} to ${SHELL_RC}.${C_RESET}"
             PATH_CONFIGURED=true
@@ -236,15 +255,16 @@ if [[ ":$PATH:" != *":${LOCAL_BIN}:"* ]]; then
     fi
 fi
 
-echo -e "\n${C_BRIGHT}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}"
-echo -e "${C_BRIGHT}✓ Installation complete!${C_RESET}"
+echo -e "\n${C_BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}"
+echo -e "${C_BRIGHT_BLUE}✓ Fold installation complete!${C_RESET}"
 if [ "${PATH_CONFIGURED}" = false ]; then
-    echo -e "${C_YELLOW}Make sure ${LOCAL_BIN} is in your PATH:${C_RESET}"
+    echo -e "${C_AMBER}Make sure ${LOCAL_BIN} is in your PATH:${C_RESET}"
     echo -e "  ${C_BOLD}export PATH=\"\$HOME/.local/bin:\$PATH\"${C_RESET}"
 fi
 echo -e "\n${C_BOLD}Quick Commands:${C_RESET}"
-echo -e "  ${C_CYAN}sheprd web${C_RESET}                 # Launch the Digital Green Web UI"
-echo -e "  ${C_CYAN}sheprd download qwen2.5-0.5b${C_RESET} # Download starter model (469MB)"
-echo -e "  ${C_CYAN}sheprd list${C_RESET}                # View configured agents and ports"
-echo -e "  ${C_CYAN}sheprd inspect <file.gguf>${C_RESET} # Auto-calculate optimal GPU/CPU settings"
-echo -e "${C_BRIGHT}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}\n"
+echo -e "  ${C_BLUE}fold web${C_RESET}                 # Launch the Fold Web UI"
+echo -e "  ${C_BLUE}fold download qwen2.5-0.5b${C_RESET} # Download starter model (469MB)"
+echo -e "  ${C_BLUE}fold list${C_RESET}                # View configured agents and ports"
+echo -e "  ${C_BLUE}fold inspect <file.gguf>${C_RESET} # Auto-calculate optimal GPU/CPU settings"
+echo -e "  ${C_BLUE}fold chat <name>${C_RESET}         # Interactive terminal chat"
+echo -e "${C_BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}\n"

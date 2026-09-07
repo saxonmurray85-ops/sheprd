@@ -20,30 +20,34 @@ from typing import Dict, List, Optional, Tuple
 from .database import AgentRecord, Database
 from .security import SecurityError, sanitize_log_text, validate_model_path
 
-logger = logging.getLogger("sheprd.server")
+logger = logging.getLogger("fold.server")
 
-LOGS_DIR = Path.home() / ".local/share/sheprd/logs"
-DEFAULT_BIN_PATH = Path.home() / ".local/share/sheprd/bin/llama-server"
+LEGACY_BIN_PATH = Path.home() / ".local/share/sheprd/bin/llama-server"
+LOGS_DIR = Path.home() / ".local/share/fold/logs"
+DEFAULT_BIN_PATH = Path.home() / ".local/share/fold/bin/llama-server"
 
 
 class ServerManager:
     def __init__(self, db: Database, bin_path: Optional[Path] = None):
         self.db = db
-        self.bin_path = bin_path or DEFAULT_BIN_PATH
+        self.bin_path = bin_path or (DEFAULT_BIN_PATH if DEFAULT_BIN_PATH.exists() else (LEGACY_BIN_PATH if LEGACY_BIN_PATH.exists() else DEFAULT_BIN_PATH))
         self.logs_dir = LOGS_DIR
         self.logs_dir.mkdir(parents=True, exist_ok=True)
-        self.locks_dir = getattr(self.db, "db_path", Path.home() / ".local/share/sheprd/sheprd.db").parent / "locks"
+        self.locks_dir = getattr(self.db, "db_path", Path.home() / ".local/share/fold/fold.db").parent / "locks"
         self.locks_dir.mkdir(parents=True, exist_ok=True)
         self.swap_lock_path = self.locks_dir / "swap.lock"
         self._running_processes: Dict[str, subprocess.Popen] = {}
         # Model Hot-Swapping configuration: maximum concurrent loaded models in RAM/VRAM
-        self.max_active_models = int(os.environ.get("SHEPRD_MAX_ACTIVE_MODELS", "1"))
+        self.max_active_models = int(os.environ.get("FOLD_MAX_ACTIVE_MODELS") or os.environ.get("SHEPRD_MAX_ACTIVE_MODELS", "1"))
         self._active_lru: OrderedDict[str, int] = OrderedDict()
 
     def resolve_binary(self) -> str:
         """Finds valid llama-server binary."""
         if self.bin_path.exists() and os.access(self.bin_path, os.X_OK):
             return str(self.bin_path.resolve())
+
+        if LEGACY_BIN_PATH.exists() and os.access(LEGACY_BIN_PATH, os.X_OK):
+            return str(LEGACY_BIN_PATH.resolve())
 
         # Fallback to PATH
         import shutil
@@ -53,7 +57,7 @@ class ServerManager:
 
         raise FileNotFoundError(
             f"llama-server executable not found at '{self.bin_path}' or on PATH. "
-            "Please ensure llama.cpp is installed in ~/.local/share/sheprd/bin/."
+            "Please ensure llama.cpp is installed in ~/.local/share/fold/bin/."
         )
 
     def find_free_port(self, start_port: int = 8081, max_port: int = 9000) -> int:
@@ -82,7 +86,7 @@ class ServerManager:
         """Checks if llama-server is healthy and ready to serve requests (HTTP 200) (S9 / N14)."""
         url = f"http://127.0.0.1:{port}/health"
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "Sheprd-HealthChecker/1.0"})
+            req = urllib.request.Request(url, headers={"User-Agent": "Fold-HealthChecker/1.0"})
             with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
                 # Strictly HTTP 200 (503 means model is still loading and not ready)
                 return resp.status == 200
@@ -214,7 +218,7 @@ class ServerManager:
             cmd.extend(["--parallel", "1", "--cont-batching"])
 
             # Timestamp log entry
-            log_file.write(f"\n--- Sheprd starting {agent_name} at {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+            log_file.write(f"\n--- Fold starting {agent_name} at {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
             log_file.write(f"Command: {' '.join(cmd)}\n")
             log_file.flush()
 

@@ -1,5 +1,5 @@
 """
-Command-Line Interface for Sheprd.
+Command-Line Interface for Fold.
 Provides subcommands to start the Web UI, inspect models, manage agent lifecycles,
 spawn agents into Herdr, and initiate interactive chat sessions.
 """
@@ -19,26 +19,29 @@ from .server_manager import ServerManager
 from .tool_hub import ToolHub
 from .web.app import run_web
 
-# Terminal styling
-C_GREEN = "\033[38;5;48m"
-C_BRIGHT_GREEN = "\033[38;5;84m"
+# Pastel terminal styling (Blue, Sage Green, Slate Grey, Cream)
 C_RESET = "\033[0m"
 C_BOLD = "\033[1m"
 C_DIM = "\033[2m"
-C_RED = "\033[38;5;196m"
-C_CYAN = "\033[38;5;51m"
-C_AMBER = "\033[38;5;214m"
+C_BLUE = "\033[38;5;117m"        # Pastel sky blue
+C_GREEN = "\033[38;5;151m"       # Pastel sage green
+C_BRIGHT_GREEN = "\033[38;5;157m"# Soft mint
+C_SLATE = "\033[38;5;248m"       # Pastel slate grey
+C_CREAM = "\033[38;5;230m"       # Origami paper cream
+C_CYAN = "\033[38;5;153m"
+C_AMBER = "\033[38;5;222m"
+C_RED = "\033[38;5;217m"
 
 
 def cmd_web(args):
-    print(f"{C_BRIGHT_GREEN}[SHEPRD]{C_RESET} Launching Digital Green Web UI at {C_BOLD}http://{args.host}:{args.port}{C_RESET}")
+    print(f"{C_BLUE}[FOLD]{C_RESET} Launching Fold Web UI at {C_BOLD}http://{args.host}:{args.port}{C_RESET}")
     try:
         run_web(host=args.host, port=args.port)
     except OSError as e:
         if getattr(e, "errno", None) == 98 or "address already in use" in str(e).lower():
             print(f"\n{C_RED}[ERROR]{C_RESET} Port {args.port} is already in use by another process.")
-            print(f"{C_AMBER}[ADVICE]{C_RESET} Another Sheprd instance or service is running on port {args.port}.")
-            print(f"        To resolve: `fuser -k {args.port}/tcp` or pass `--port <new_port>` (e.g. `sheprd web --port 8766`).\n")
+            print(f"{C_AMBER}[ADVICE]{C_RESET} Another Fold instance or service is running on port {args.port}.")
+            print(f"        To resolve: `fuser -k {args.port}/tcp` or pass `--port <new_port>` (e.g. `fold web --port 8766`).\n")
             sys.exit(1)
         raise
 
@@ -49,10 +52,10 @@ def cmd_list(args):
     agents = db.list_agents()
 
     if not agents:
-        print(f"{C_DIM}No agents currently configured. Use 'sheprd deploy' or launch the web UI ('sheprd web').{C_RESET}")
+        print(f"{C_DIM}No agents currently configured. Deploy an agent with 'fold deploy' or launch the web UI ('fold web').{C_RESET}")
         return
 
-    print(f"\n{C_BOLD}{C_BRIGHT_GREEN}SHEPRD AGENT REGISTRY{C_RESET}")
+    print(f"\n{C_BOLD}{C_BLUE}FOLD AGENT FLEET{C_RESET}")
     print(f"{C_DIM}{'=' * 85}{C_RESET}")
     header = f"{'NAME':<16} {'STATUS':<12} {'PORT':<8} {'GPU-L':<8} {'TG':<6} {'CALLABLE':<10} {'IDENTITY'}"
     print(f"{C_BOLD}{header}{C_RESET}")
@@ -75,7 +78,7 @@ def cmd_list(args):
         )
         print(row)
     print(f"{C_DIM}{'=' * 85}{C_RESET}")
-    print(f"{C_DIM}Spawn in Herdr: Type '{C_BRIGHT_GREEN}<agent_name>{C_RESET}{C_DIM}' in any terminal or run 'sheprd spawn <name>'.{C_RESET}\n")
+    print(f"{C_DIM}Spawn in Herdr: Type '{C_BLUE}<agent_name>{C_RESET}{C_DIM}' in any terminal or run 'fold spawn <name>'.{C_RESET}\n")
 
 
 def cmd_inspect(args):
@@ -85,10 +88,10 @@ def cmd_inspect(args):
         print(f"{C_RED}[Security Error]{C_RESET} {e}")
         sys.exit(1)
 
-    print(f"{C_GREEN}[SHEPRD]{C_RESET} Inspecting GGUF binary: {validated.name}...")
+    print(f"{C_BLUE}[FOLD]{C_RESET} Inspecting GGUF binary: {validated.name}...")
     meta, rec = analyze_model_and_recommend(str(validated))
 
-    print(f"\n{C_BOLD}{C_BRIGHT_GREEN}MODEL METADATA{C_RESET}")
+    print(f"\n{C_BOLD}{C_BLUE}MODEL METADATA{C_RESET}")
     print(f"{C_DIM}{'-' * 45}{C_RESET}")
     print(f"  Architecture       : {meta.architecture}")
     print(f"  Quantization       : {meta.quantization}")
@@ -97,7 +100,7 @@ def cmd_inspect(args):
     print(f"  File Size          : {meta.file_size_gb} GB")
     print(f"  Chat Template Kind : {meta.detected_template_kind}")
 
-    print(f"\n{C_BOLD}{C_BRIGHT_GREEN}RECOMMENDED EXECUTION PARAMETERS{C_RESET}")
+    print(f"\n{C_BOLD}{C_BLUE}RECOMMENDED EXECUTION PARAMETERS{C_RESET}")
     print(f"{C_DIM}{'-' * 45}{C_RESET}")
     print(f"  Optimal Context    : {rec.context_size}")
     print(f"  GPU Offload Layers : {rec.n_gpu_layers}")
@@ -119,14 +122,14 @@ def cmd_start(args):
         print(f"{C_RED}[ERROR]{C_RESET} Agent '{agent_name}' not found.")
         sys.exit(1)
 
-    print(f"{C_GREEN}[SHEPRD]{C_RESET} Starting server for agent '{agent_name}'...")
+    print(f"{C_BLUE}[FOLD]{C_RESET} Starting server for agent '{agent_name}'...")
     ok, msg = server_mgr.ensure_agent_running(agent_name)
     if ok:
         print(f"{C_BRIGHT_GREEN}[SUCCESS]{C_RESET} {msg}")
         if agent.telegram_enabled and agent.telegram_bot_token:
             print(f"{C_CYAN}[TELEGRAM]{C_RESET} Telegram bot is enabled for this agent.")
-            print(f"  • Launch '{C_BOLD}sheprd web{C_RESET}' (runs Web UI & Telegram worker automatically)")
-            print(f"  • Or run '{C_BOLD}sheprd telegram run{C_RESET}' for a headless worker")
+            print(f"  • Launch '{C_BOLD}fold web{C_RESET}' (runs Web UI & Telegram worker automatically)")
+            print(f"  • Or run '{C_BOLD}fold telegram run{C_RESET}' for a headless worker")
     else:
         print(f"{C_RED}[FAILED]{C_RESET} {msg}")
         sys.exit(1)
@@ -141,7 +144,7 @@ def cmd_activate(args):
         print(f"{C_RED}[ERROR]{C_RESET} Agent '{agent_name}' not found.")
         sys.exit(1)
 
-    print(f"{C_GREEN}[SHEPRD]{C_RESET} Activating agent '{agent_name}' (LRU hot-swap)...")
+    print(f"{C_BLUE}[FOLD]{C_RESET} Activating agent '{agent_name}' (LRU hot-swap)...")
     ok, msg = server_mgr.ensure_agent_running(agent_name)
     if ok:
         print(f"{C_BRIGHT_GREEN}[SUCCESS]{C_RESET} {msg}")
@@ -160,17 +163,17 @@ def cmd_telegram(args):
         if not agents:
             print(f"{C_DIM}No agents currently have Telegram bot enabled.{C_RESET}")
             return
-        print(f"\n{C_BOLD}{C_BRIGHT_GREEN}TELEGRAM BOT CONFIGURATION{C_RESET}")
+        print(f"\n{C_BOLD}{C_BLUE}TELEGRAM BOT CONFIGURATION{C_RESET}")
         print(f"{C_DIM}{'=' * 65}{C_RESET}")
         for a in agents:
             tok = mask_token(a.telegram_bot_token or "")
             print(f"  Agent: {C_BOLD}{a.name:<12}{C_RESET} Token: {tok}  Server Port: {a.port}")
         print(f"{C_DIM}{'=' * 65}{C_RESET}")
-        print(f"Run '{C_BOLD}sheprd telegram run{C_RESET}' to run workers in the foreground,")
-        print(f"or '{C_BOLD}sheprd web{C_RESET}' to run both Web UI and all Telegram workers.\n")
+        print(f"Run '{C_BOLD}fold telegram run{C_RESET}' to run workers in the foreground,")
+        print(f"or '{C_BOLD}fold web{C_RESET}' to run both Web UI and all Telegram workers.\n")
     elif sub == "run":
         import asyncio
-        print(f"{C_BRIGHT_GREEN}[TELEGRAM]{C_RESET} Starting Telegram bot workers...")
+        print(f"{C_BLUE}[TELEGRAM]{C_RESET} Starting Telegram bot workers...")
         async def _run_loop():
             mgr = TelegramServiceManager(db)
             await mgr.sync_all()
@@ -192,13 +195,13 @@ def cmd_stop(args):
     server_mgr = ServerManager(db)
     agent_name = args.name.strip()
     ok, msg = server_mgr.stop_agent_server(agent_name)
-    print(f"{C_GREEN}[SHEPRD]{C_RESET} {msg}")
+    print(f"{C_BLUE}[FOLD]{C_RESET} {msg}")
 
 
 def cmd_stop_all(args):
     db = Database()
     server_mgr = ServerManager(db)
-    print(f"{C_GREEN}[SHEPRD]{C_RESET} Stopping all running agent servers...")
+    print(f"{C_BLUE}[FOLD]{C_RESET} Stopping all running agent servers...")
     server_mgr.stop_all()
     print(f"{C_BRIGHT_GREEN}[DONE]{C_RESET} All servers halted.")
 
@@ -239,7 +242,7 @@ def cmd_logs(args):
 def cmd_download(args):
     from .downloader import download_model, list_starter_models
     preset = args.model.strip()
-    print(f"{C_BRIGHT_GREEN}[SHEPRD]{C_RESET} Starting download for: {C_BOLD}{preset}{C_RESET}...")
+    print(f"{C_BLUE}[FOLD]{C_RESET} Starting download for: {C_BOLD}{preset}{C_RESET}...")
 
     def on_progress(downloaded, total, speed):
         mb_down = downloaded / (1024 * 1024)
@@ -263,7 +266,7 @@ def cmd_remove(args):
     HerdrIntegration.remove_launcher(agent_name)
     deleted = db.delete_agent(agent_name)
     if deleted:
-        print(f"{C_GREEN}[SHEPRD]{C_RESET} Agent '{agent_name}' and Herdr launcher removed.")
+        print(f"{C_BLUE}[FOLD]{C_RESET} Agent '{agent_name}' and Herdr launcher removed.")
     else:
         print(f"{C_RED}[ERROR]{C_RESET} Agent '{agent_name}' not found.")
 
@@ -274,7 +277,7 @@ def cmd_tools(args):
     hub = ToolHub(db)
     tools = hub.get_available_tools_catalog()
 
-    print(f"\n{C_BOLD}{C_BRIGHT_GREEN}SHEPRD TOOLS & SKILLS CATALOG{C_RESET}")
+    print(f"\n{C_BOLD}{C_BLUE}FOLD TOOLS & SKILLS CATALOG{C_RESET}")
     print(f"{C_DIM}{'=' * 80}{C_RESET}")
     print(f"{'TYPE':<10} {'NAME':<24} {'SERVER':<16} {'DESCRIPTION'}")
     print(f"{C_DIM}{'-' * 80}{C_RESET}")
@@ -321,11 +324,11 @@ def cmd_mcp(args):
         servers = db.list_mcp_servers()
         if not servers:
             print(f"\n{C_DIM}No external MCP servers registered yet.{C_RESET}")
-            print(f"Add an MCP server using: {C_BOLD}sheprd mcp add <name> <command> [args...]{C_RESET}")
-            print(f"Example: {C_CYAN}sheprd mcp add duckduckgo npx -y @modelcontextprotocol/server-duckduckgo{C_RESET}\n")
+            print(f"Add an MCP server using: {C_BOLD}fold mcp add <name> <command> [args...]{C_RESET}")
+            print(f"Example: {C_CYAN}fold mcp add duckduckgo npx -y @modelcontextprotocol/server-duckduckgo{C_RESET}\n")
             return
 
-        print(f"\n{C_BOLD}{C_BRIGHT_GREEN}REGISTERED MCP TOOL SERVERS{C_RESET}")
+        print(f"\n{C_BOLD}{C_BLUE}REGISTERED MCP TOOL SERVERS{C_RESET}")
         print(f"{C_DIM}{'=' * 75}{C_RESET}")
         print(f"{'NAME':<16} {'STATUS':<10} {'COMMAND':<20} {'ARGS'}")
         print(f"{C_DIM}{'-' * 75}{C_RESET}")
@@ -396,7 +399,7 @@ def cmd_mcp(args):
             names = [s["name"] for s in new_servers]
             print(f"{C_BRIGHT_GREEN}[SUCCESS]{C_RESET} Synced {len(new_servers)} server(s): {', '.join(names)}")
         else:
-            print(f"{C_GREEN}[SHEPRD]{C_RESET} All MCP servers already synchronized.")
+            print(f"{C_BLUE}[FOLD]{C_RESET} All MCP servers already synchronized.")
 
     elif sub == "search":
         query = " ".join(args.query).strip()
@@ -417,26 +420,26 @@ def cmd_mcp(args):
             snippet = r.get("installSnippet") or r.get("command") or r.get("qualifiedName", "")
             print(f"{C_BOLD}{r['name'][:23]:<24}{C_RESET} {snippet[:24]:<25} {desc_snip}")
         print(f"{C_DIM}{'=' * 75}{C_RESET}\n")
-        print(f"Install any tool with: {C_BOLD}sheprd mcp install <command-or-url>{C_RESET}\n")
+        print(f"Install any tool with: {C_BOLD}fold mcp install <command-or-url>{C_RESET}\n")
 
     elif sub == "remove":
         name = args.name.strip()
         deleted = db.delete_mcp_server(name)
         if deleted:
-            print(f"{C_GREEN}[SHEPRD]{C_RESET} Removed MCP server '{name}'.")
+            print(f"{C_BLUE}[FOLD]{C_RESET} Removed MCP server '{name}'.")
         else:
             print(f"{C_RED}[ERROR]{C_RESET} MCP server '{name}' not found.")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        prog="sheprd",
-        description="Sheprd: llama.cpp Agent Orchestrator & Herdr Workspace Integration.",
+        prog="fold",
+        description="Fold: llama.cpp Agent Orchestrator & Herdr Workspace Integration.",
     )
     subparsers = parser.add_subparsers(dest="command", help="Available subcommands")
 
     # web
-    p_web = subparsers.add_parser("web", aliases=["ui"], help="Launch Digital Green Web UI")
+    p_web = subparsers.add_parser("web", aliases=["ui"], help="Launch Fold Web UI")
     p_web.add_argument("--host", default="127.0.0.1", help="Host interface (default: 127.0.0.1)")
     p_web.add_argument("--port", type=int, default=8765, help="Port to listen on (default: 8765)")
     p_web.set_defaults(func=cmd_web)
@@ -533,7 +536,7 @@ def main():
     if not args.command:
         # Default action when run with no arguments: list or show help
         cmd_list(args)
-        print("Run 'sheprd web' to open the Web UI or 'sheprd --help' for CLI commands.")
+        print("Run 'fold web' to open the Web UI or 'fold --help' for CLI commands.")
         return
 
     args.func(args)

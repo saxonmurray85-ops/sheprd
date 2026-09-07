@@ -17,11 +17,12 @@ from typing import Any, Dict, List, Optional, Tuple
 from .database import Database
 from .security import validate_agent_name
 
-logger = logging.getLogger("sheprd.smithery")
+logger = logging.getLogger("fold.smithery")
 
 CLAUDE_CONFIG_PATH = Path.home() / ".config/Claude/claude_desktop_config.json"
 CURSOR_CONFIG_PATH = Path.home() / ".cursor/mcp.json"
 CURSOR_CONFIG_ALT_PATH = Path.home() / ".config/Cursor/mcp.json"
+FOLD_MCP_CONFIG_PATH = Path.home() / ".config/fold/mcp.json"
 SHEPRD_MCP_CONFIG_PATH = Path.home() / ".config/sheprd/mcp.json"
 
 
@@ -311,6 +312,7 @@ def sync_external_client_configs(db: Database) -> List[Dict[str, Any]]:
         CLAUDE_CONFIG_PATH,
         CURSOR_CONFIG_PATH,
         CURSOR_CONFIG_ALT_PATH,
+        FOLD_MCP_CONFIG_PATH,
         SHEPRD_MCP_CONFIG_PATH,
     ]
     imported = []

@@ -1,5 +1,5 @@
 """
-Automated unit and integration test suite for Sheprd.
+Automated unit and integration test suite for Fold.
 Verifies security gates, GGUF parsing, database isolation,
 Herdr launcher creation, and multi-agent coordination.
 """
@@ -13,13 +13,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from sheprd.core_tools import CORE_TOOLS_REGISTRY, calculate, execute_core_tool, get_current_time
-from sheprd.database import Database
-from sheprd.herdr_integration import HerdrIntegration
-from sheprd.inspector import GGUFInspector, HardwareInspector, analyze_model_and_recommend
-from sheprd.mcp_client import MCPManager, MCPServerInfo, StdioMCPConnection
-from sheprd.multi_agent import MultiAgentRouter
-from sheprd.security import (
+from fold.core_tools import CORE_TOOLS_REGISTRY, calculate, execute_core_tool, get_current_time
+from fold.database import Database
+from fold.herdr_integration import HerdrIntegration
+from fold.inspector import GGUFInspector, HardwareInspector, analyze_model_and_recommend
+from fold.mcp_client import MCPManager, MCPServerInfo, StdioMCPConnection
+from fold.multi_agent import MultiAgentRouter
+from fold.security import (
     SecurityError,
     mask_token,
     sanitize_log_text,
@@ -31,10 +31,14 @@ from sheprd.security import (
     validate_model_path,
     validate_port,
 )
-from sheprd.telegram_service import TELEGRAM_TOKEN_REGEX
+from fold.telegram_service import TELEGRAM_TOKEN_REGEX
 
 
-SAMPLE_MODEL_PATH = Path.home() / ".local/share/sheprd/models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+SAMPLE_MODEL_PATH = Path.home() / ".local/share/fold/models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+if not SAMPLE_MODEL_PATH.exists():
+    _legacy_sample = Path.home() / ".local/share/sheprd/models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+    if _legacy_sample.exists():
+        SAMPLE_MODEL_PATH = _legacy_sample
 
 
 class TestSecurityModule(unittest.TestCase):
@@ -49,7 +53,9 @@ class TestSecurityModule(unittest.TestCase):
         with self.assertRaises(SecurityError):
             validate_agent_name("bad;rm -rf /")
         with self.assertRaises(SecurityError):
-            validate_agent_name("sheprd")  # Reserved
+            validate_agent_name("fold")  # Reserved
+        with self.assertRaises(SecurityError):
+            validate_agent_name("sheprd")  # Reserved (legacy)
 
     def test_group_name_validation(self):
         self.assertEqual(validate_group_name("dev-team"), "dev-team")
@@ -189,7 +195,7 @@ class TestDatabaseAndMultiAgent(unittest.TestCase):
             router.call_agent("private_agent", "peer", "loop", depth=3, max_depth=3)
 
     def test_pid_verification(self):
-        from sheprd.server_manager import ServerManager
+        from fold.server_manager import ServerManager
         # PID 1 is systemd/init, definitely not a llama-server
         self.assertFalse(ServerManager._verify_process_is_llama(1, 8081))
         self.assertFalse(ServerManager._verify_process_is_llama(-999, 8081))
@@ -210,7 +216,7 @@ class TestHerdrLauncher(unittest.TestCase):
 class TestToolsAndMCP(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp()
-        self.db_path = Path(self.temp_dir) / "test_sheprd.db"
+        self.db_path = Path(self.temp_dir) / "test_fold.db"
         self.db = Database(db_path=self.db_path)
 
     def tearDown(self):
@@ -291,7 +297,7 @@ class TestToolsAndMCP(unittest.TestCase):
         self.assertEqual(len(self.db.list_mcp_servers()), 0)
 
     def test_agent_tools_persistence_and_routing(self):
-        from sheprd.tool_hub import ToolHub
+        from fold.tool_hub import ToolHub
 
         agent = self.db.create_agent(
             name="toolbot",
@@ -335,7 +341,7 @@ class TestHardeningAndHotSwap(unittest.TestCase):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_ssrf_protection(self):
-        from sheprd.core_tools import tool_fetch_url
+        from fold.core_tools import tool_fetch_url
 
         # Loopback IPv4
         res1 = tool_fetch_url("http://127.0.0.1:8080/admin")
@@ -372,7 +378,7 @@ class TestHardeningAndHotSwap(unittest.TestCase):
         self.assertEqual(calculate("2**10"), "1024")
 
     def test_tool_permission_enforcement(self):
-        from sheprd.tool_hub import ToolHub
+        from fold.tool_hub import ToolHub
 
         agent = self.db.create_agent(
             name="time_only_bot",
@@ -397,7 +403,7 @@ class TestHardeningAndHotSwap(unittest.TestCase):
         self.assertIn("UTC", good_call)
 
     def test_interactive_chat_session_instantiation(self):
-        from sheprd.interactive_chat import InteractiveChatSession
+        from fold.interactive_chat import InteractiveChatSession
 
         agent = self.db.create_agent(
             name="chat_bot",
@@ -414,18 +420,18 @@ class TestHardeningAndHotSwap(unittest.TestCase):
         self.assertIsNotNone(session.server_mgr)
 
     def test_api_token_creation_and_perms(self):
-        from sheprd.security import get_or_create_api_token
+        from fold.security import API_TOKEN_PATH, get_or_create_api_token
 
         token = get_or_create_api_token()
         self.assertGreaterEqual(len(token), 32)
 
-        token_file = Path.home() / ".local/share/sheprd/api_token"
+        token_file = API_TOKEN_PATH
         self.assertTrue(token_file.exists())
         file_mode = token_file.stat().st_mode & 0o777
         self.assertEqual(file_mode, 0o600)
 
     def test_mcp_secrets_masking(self):
-        from sheprd.web.app import SheprdWebApp
+        from fold.web.app import FoldWebApp
 
         raw_server = {
             "id": 1,
@@ -437,12 +443,12 @@ class TestHardeningAndHotSwap(unittest.TestCase):
             "description": "Search tools",
         }
 
-        masked = SheprdWebApp._mask_mcp_server_secrets(raw_server)
+        masked = FoldWebApp._mask_mcp_server_secrets(raw_server)
         self.assertIn("••••", masked["env"]["API_KEY"])
         self.assertNotIn("supersecretkey1234567890", masked["env"]["API_KEY"])
 
     def test_server_manager_lru_hot_swap(self):
-        from sheprd.server_manager import ServerManager
+        from fold.server_manager import ServerManager
 
         agent_a = self.db.create_agent(
             name="agent_a",
@@ -497,7 +503,7 @@ class TestHardeningAndHotSwap(unittest.TestCase):
         self.assertIn("agent_b", started_agents)
 
     def test_parse_mcp_install_string_formats(self):
-        from sheprd.mcp_smithery import parse_mcp_install_string
+        from fold.mcp_smithery import parse_mcp_install_string
 
         # 1. Smithery URL
         url_res = parse_mcp_install_string("https://smithery.ai/server/@smithery-ai/fetch")
@@ -546,7 +552,7 @@ class TestHardeningAndHotSwap(unittest.TestCase):
     def test_sync_external_client_configs(self):
         import tempfile
         from unittest.mock import patch
-        from sheprd.mcp_smithery import sync_external_client_configs
+        from fold.mcp_smithery import sync_external_client_configs
 
         with tempfile.TemporaryDirectory() as tmpdir:
             claude_cfg = Path(tmpdir) / "claude_desktop_config.json"
@@ -559,10 +565,10 @@ class TestHardeningAndHotSwap(unittest.TestCase):
                 }
             }), encoding="utf-8")
 
-            with patch("sheprd.mcp_smithery.CLAUDE_CONFIG_PATH", claude_cfg), \
-                 patch("sheprd.mcp_smithery.CURSOR_CONFIG_PATH", Path(tmpdir) / "none.json"), \
-                 patch("sheprd.mcp_smithery.CURSOR_CONFIG_ALT_PATH", Path(tmpdir) / "none2.json"), \
-                 patch("sheprd.mcp_smithery.SHEPRD_MCP_CONFIG_PATH", Path(tmpdir) / "none3.json"):
+            with patch("fold.mcp_smithery.CLAUDE_CONFIG_PATH", claude_cfg), \
+                 patch("fold.mcp_smithery.CURSOR_CONFIG_PATH", Path(tmpdir) / "none.json"), \
+                 patch("fold.mcp_smithery.CURSOR_CONFIG_ALT_PATH", Path(tmpdir) / "none2.json"), \
+                 patch("fold.mcp_smithery.FOLD_MCP_CONFIG_PATH", Path(tmpdir) / "none3.json"):
 
                 # First sync imports it
                 imported = sync_external_client_configs(self.db)
@@ -639,7 +645,7 @@ class TestHardeningAndHotSwap(unittest.TestCase):
         self.assertIn("LRU cap", skipped_map["idle_worker"])
 
     def test_cross_process_lru_last_used_timestamp(self):
-        from sheprd.server_manager import ServerManager
+        from fold.server_manager import ServerManager
 
         self.db.create_agent(
             name="lru_one",
@@ -719,9 +725,9 @@ class TestHardeningAndHotSwap(unittest.TestCase):
     def test_cmd_mcp_add_security_error_handling(self):
         from unittest.mock import patch
         from io import StringIO
-        from sheprd.cli import main
+        from fold.cli import main
 
-        with patch("sys.argv", ["sheprd", "mcp", "add", "bad;name", "uvx", "mcp-server-git"]), \
+        with patch("sys.argv", ["fold", "mcp", "add", "bad;name", "uvx", "mcp-server-git"]), \
              patch("sys.stdout", new_callable=StringIO) as mock_stdout:
             main()
             self.assertIn("Invalid MCP server name", mock_stdout.getvalue())

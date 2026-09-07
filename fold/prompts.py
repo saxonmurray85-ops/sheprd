@@ -1,5 +1,5 @@
 """
-Centralized Prompt Generation for Sheprd Agents.
+Centralized Prompt Generation for Fold Agents.
 Ensures consistent persona, identity, job constraints, and tool invocation
 instructions across interactive terminal chat, Telegram bots, Web UI, and
 peer-to-peer agent delegation.

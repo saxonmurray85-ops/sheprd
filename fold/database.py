@@ -16,7 +16,8 @@ from typing import Any, Dict, List, Optional
 from .security import SecurityError, mask_token, validate_agent_name, validate_groups, validate_port
 
 
-DEFAULT_DB_PATH = Path.home() / ".local/share/sheprd/sheprd.db"
+LEGACY_DB_PATH = Path.home() / ".local/share/sheprd/sheprd.db"
+DEFAULT_DB_PATH = Path.home() / ".local/share/fold/fold.db"
 DEFAULT_CORE_TOOLS = ["get_weather", "wikipedia_search", "calculate", "get_current_time"]
 
 
@@ -54,7 +55,17 @@ class AgentRecord:
 
 class Database:
     def __init__(self, db_path: Optional[Path] = None):
-        self.db_path = db_path or DEFAULT_DB_PATH
+        if db_path is None:
+            if not DEFAULT_DB_PATH.exists() and LEGACY_DB_PATH.exists():
+                DEFAULT_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+                import shutil
+                try:
+                    shutil.copy2(LEGACY_DB_PATH, DEFAULT_DB_PATH)
+                except Exception:
+                    pass
+            self.db_path = DEFAULT_DB_PATH
+        else:
+            self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 

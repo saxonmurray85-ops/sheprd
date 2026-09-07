@@ -37,6 +37,7 @@ SENSITIVE_PATH_MARKERS = [
 ]
 
 RESERVED_NAMES = {
+    "fold",
     "sheprd",
     "herdr",
     "bin",
@@ -227,7 +228,8 @@ def validate_groups(groups: Optional[List[str]]) -> List[str]:
     return valid or ["default"]
 
 
-API_TOKEN_PATH = Path.home() / ".local/share/sheprd/api_token"
+LEGACY_API_TOKEN_PATH = Path.home() / ".local/share/sheprd/api_token"
+API_TOKEN_PATH = Path.home() / ".local/share/fold/api_token"
 
 
 def get_or_create_api_token() -> str:
@@ -239,6 +241,13 @@ def get_or_create_api_token() -> str:
 
     token_file = API_TOKEN_PATH
     token_file.parent.mkdir(parents=True, exist_ok=True)
+    if not token_file.exists() and LEGACY_API_TOKEN_PATH.exists():
+        import shutil
+        try:
+            shutil.copy2(LEGACY_API_TOKEN_PATH, token_file)
+        except Exception:
+            pass
+
     if token_file.exists():
         try:
             token = token_file.read_text("utf-8").strip()

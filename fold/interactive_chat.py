@@ -23,24 +23,27 @@ from .prompts import build_agent_system_prompt
 from .server_manager import ServerManager
 from .tool_hub import ToolHub
 
-# Digital Green ANSI Palette
+# Pastel ANSI Palette (Blue, Sage Green, Slate Grey, Cream)
 C_RESET = "\033[0m"
 C_BOLD = "\033[1m"
 C_DIM = "\033[2m"
-C_GREEN = "\033[38;5;48m"       # Crisp phosphor green
-C_BRIGHT_GREEN = "\033[38;5;84m" # Radiant glowing green
-C_DARK_GREEN = "\033[38;5;28m"   # Subdued border green
-C_CYAN = "\033[38;5;51m"
-C_AMBER = "\033[38;5;214m"
-C_RED = "\033[38;5;196m"
-C_BG_GREEN = "\033[48;5;22m"
+C_BLUE = "\033[38;5;117m"        # Soft pastel sky blue
+C_GREEN = "\033[38;5;151m"       # Soft pastel sage green
+C_BRIGHT_GREEN = "\033[38;5;157m"# Radiant pastel mint
+C_SLATE = "\033[38;5;248m"       # Refined pastel slate grey
+C_CREAM = "\033[38;5;230m"       # Origami paper cream
+C_CYAN = "\033[38;5;153m"        # Pastel ice cyan
+C_AMBER = "\033[38;5;222m"       # Soft pastel sand
+C_RED = "\033[38;5;217m"         # Soft pastel rose
+C_BG_ACCENT = "\033[48;5;236m"
 
 
 BANNER_ART = r"""
-  ___ _  _ ___ ___ ___ ___ 
- / __| || | __| _ \ _ \   \ 
- \__ \ __ | _||  _/   / |) |
- |___/_||_|___|_| |_|_\___/ 
+   _____   ___   _     ___  
+  |  ___| / _ \ | |   |   \ 
+  | |_   | | | || |   | |) |
+  |_|     \___/ |_|___|___/ 
+        Fold of Sheep // Herdr Fleet
 """
 
 
@@ -56,13 +59,13 @@ class InteractiveChatSession:
 
     def ensure_server_running(self) -> bool:
         if not self.agent:
-            print(f"{C_RED}[ERROR]{C_RESET} Agent '{self.agent_name}' not found in Sheprd registry.")
+            print(f"{C_RED}[ERROR]{C_RESET} Agent '{self.agent_name}' not found in Fold registry.")
             return False
 
         if self.server_mgr.check_health(self.agent.port):
             return True
 
-        print(f"{C_GREEN}[SHEPRD]{C_RESET} Activating local model for {C_BOLD}{self.agent_name}{C_RESET} on port {self.agent.port}...")
+        print(f"{C_BLUE}[FOLD]{C_RESET} Activating local model for {C_BOLD}{self.agent_name}{C_RESET} on port {self.agent.port}...")
         ok, msg = self.server_mgr.ensure_agent_running(self.agent_name, timeout_sec=35)
         if not ok:
             print(f"{C_RED}[ERROR]{C_RESET} {msg}")
@@ -163,7 +166,7 @@ class InteractiveChatSession:
 
         self.print_banner()
 
-        history_file = Path.home() / f".local/share/sheprd/history_{self.agent_name}"
+        history_file = Path.home() / f".local/share/fold/history_{self.agent_name}"
         if history_file.exists():
             try:
                 readline.read_history_file(str(history_file))
@@ -173,7 +176,7 @@ class InteractiveChatSession:
         try:
             while True:
                 try:
-                    prompt = f"{C_BOLD}{C_BRIGHT_GREEN}you ›{C_RESET} "
+                    prompt = f"{C_BOLD}{C_BLUE}you ›{C_RESET} "
                     user_input = input(prompt).strip()
 
                     if not user_input:
@@ -243,7 +246,7 @@ class InteractiveChatSession:
 
 def main():
     if len(sys.argv) < 2:
-        print(f"{C_RED}Usage:{C_RESET} python3 -m sheprd.interactive_chat <agent_name>")
+        print(f"{C_RED}Usage:{C_RESET} python3 -m fold.interactive_chat <agent_name>")
         sys.exit(1)
     agent_name = sys.argv[1]
     session = InteractiveChatSession(agent_name)

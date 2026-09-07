@@ -20,12 +20,12 @@ from .security import mask_token, sanitize_log_text
 from .tool_hub import ToolHub
 
 
-logger = logging.getLogger("sheprd.telegram")
+logger = logging.getLogger("fold.telegram")
 
 TELEGRAM_TOKEN_REGEX = re.compile(r"^\d{8,12}:[A-Za-z0-9_-]{30,45}$")
 
 
-LOCK_DIR = Path.home() / ".local/share/sheprd"
+LOCK_DIR = Path.home() / ".local/share/fold"
 
 
 class TelegramBotWorker:
@@ -122,7 +122,7 @@ class TelegramBotWorker:
                         return
                     me_data = await resp.json()
                     self.bot_username = me_data.get("result", {}).get("username", "Unknown")
-                    logger.info("Sheprd Telegram connected: @%s for agent %s", self.bot_username, self.agent_name)
+                    logger.info("Fold Telegram connected: @%s for agent %s", self.bot_username, self.agent_name)
             except Exception as e:
                 clean_err = sanitize_log_text(str(e), [token])
                 logger.error("Error connecting to Telegram for %s: %s", self.agent_name, clean_err)
@@ -130,9 +130,10 @@ class TelegramBotWorker:
                 return
 
             # Warn once if no Telegram allowlist configured (N2/S3)
-            if not os.environ.get("SHEPRD_TELEGRAM_ALLOWED_USERS", "").strip():
+            allowed_check = os.environ.get("FOLD_TELEGRAM_ALLOWED_USERS") or os.environ.get("SHEPRD_TELEGRAM_ALLOWED_USERS", "")
+            if not allowed_check.strip():
                 logger.warning(
-                    "Telegram bot for '%s' running with NO user allowlist configured (SHEPRD_TELEGRAM_ALLOWED_USERS not set) — open to all users.",
+                    "Telegram bot for '%s' running with NO user allowlist configured (FOLD_TELEGRAM_ALLOWED_USERS not set) — open to all users.",
                     self.agent_name
                 )
 
@@ -186,7 +187,7 @@ class TelegramBotWorker:
             self.agent_name, user_id, username, text[:60]
         )
 
-        allowed_users_env = os.environ.get("SHEPRD_TELEGRAM_ALLOWED_USERS", "").strip()
+        allowed_users_env = (os.environ.get("FOLD_TELEGRAM_ALLOWED_USERS") or os.environ.get("SHEPRD_TELEGRAM_ALLOWED_USERS", "")).strip()
         if allowed_users_env:
             allowed_set = {u.strip().lower() for u in allowed_users_env.split(",") if u.strip()}
             is_allowed = (
@@ -202,7 +203,7 @@ class TelegramBotWorker:
                 )
                 await self._send_message(
                     session, base_url, chat_id,
-                    "⛔ *Unauthorized*: You are not on the allowlist for this local Sheprd agent.",
+                    "⛔ *Unauthorized*: You are not on the allowlist for this local Fold agent.",
                     parse_mode="Markdown"
                 )
                 return

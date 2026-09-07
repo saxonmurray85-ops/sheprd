@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 
-logger = logging.getLogger("sheprd.mcp")
+logger = logging.getLogger("fold.mcp")
 
 
 @dataclass
@@ -99,7 +99,7 @@ class StdioMCPConnection:
             "params": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
-                "clientInfo": {"name": "sheprd", "version": "0.1.0"},
+                "clientInfo": {"name": "fold", "version": "0.2.0"},
             },
         }
 

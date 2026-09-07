@@ -1,30 +1,34 @@
-# ⚡ Sheprd: llama.cpp Agent Orchestrator & Herdr Integration
+# 🐑 Fold: llama.cpp Agent Orchestrator & Herdr Integration
 
 > **Terminal & web orchestrator for deploying local llama.cpp models, spinning up specialized AI agents, and seamlessly spawning them inside Herdr terminal workspaces and Telegram.**
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-00ff66.svg?style=flat-square)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-00ff66.svg?style=flat-square)](https://opensource.org/licenses/MIT)
-[![llama.cpp: Vulkan](https://img.shields.io/badge/llama.cpp-Vulkan%20Accelerated-00ff66.svg?style=flat-square)](https://github.com/ggml-org/llama.cpp)
-[![Herdr: Integrated](https://img.shields.io/badge/Herdr-Native%20Workspace-00ff66.svg?style=flat-square)](https://github.com/herdr/herdr)
+<p align="center">
+  <img src="docs/assets/fold_logo.jpeg" alt="Fold Origami Sheep Branding" width="600" style="border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.4);" />
+</p>
+
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-7eb8da.svg?style=flat-square)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-88b79b.svg?style=flat-square)](https://opensource.org/licenses/MIT)
+[![llama.cpp: Vulkan](https://img.shields.io/badge/llama.cpp-Vulkan%20Accelerated-cbd5e1.svg?style=flat-square)](https://github.com/ggml-org/llama.cpp)
+[![Herdr: Integrated](https://img.shields.io/badge/Herdr-Native%20Workspace-7eb8da.svg?style=flat-square)](https://github.com/herdr/herdr)
 
 ---
 
-## 🖥️ Screenshots
+## 🎨 Aesthetics & Branding: Origami Sheep & Pastel Palette
 
-### Web UI Dashboard & Agent Fleet
-![Sheprd Dashboard](docs/assets/sheprd_dashboard.png)
+Fold introduces an elegant, modern visual identity inspired by origami papercraft and a soft pastel aesthetic:
+- **Origami Paper Sheep**: Distinct faceted geometric origami sheep avatars for your agent fleet, status badges, and header branding.
+- **Pastel Color System**: Carefully calibrated tones of **Sky Blue** (`#7eb8da`), **Sage Green** (`#88b79b`), **Slate Grey** (`#cbd5e1`), and **Origami Paper Cream** (`#fbf7ee`) on a deep slate canvas (`#0c121e`).
+- **Clean Responsive Layout**: Identical workflow placement with rounded modern cards, subtle ambient glows, and clean typography.
 
-### Digital Green Interactive Terminal Chat (Herdr Integration)
-![Sheprd Interactive Terminal](docs/assets/sheprd_terminal.png)
-
-### Model Auto-Inspector & Hardware Tuning Wizard
-![Sheprd Web UI Deployment Modal](docs/assets/sheprd_web_ui.png)
+<p align="center">
+  <img src="docs/assets/fold_sheep.jpeg" alt="Fold Origami Sheep Fleet" width="550" style="border-radius: 8px;" />
+</p>
 
 ---
 
 ## 🚀 One-Step Linux Installation
 
-Sheprd provides an automated setup script that configures an isolated environment, automatically resolves Python dependencies across all major Linux distributions (Ubuntu, Debian, Fedora, Arch, openSUSE, Alpine), downloads the pre-built `llama.cpp` Vulkan acceleration bundle, and registers the `sheprd` CLI in `~/.local/bin`.
+Fold provides an automated setup script that configures an isolated environment, automatically resolves Python dependencies across all major Linux distributions (Ubuntu, Debian, Fedora, Arch, openSUSE, Alpine), downloads the pre-built `llama.cpp` Vulkan acceleration bundle, and registers the `fold` CLI in `~/.local/bin`.
 
 ### Option 1: Quick Install (Git Clone)
 
@@ -46,7 +50,7 @@ pip install -e .
 
 ### Uninstallation
 
-To completely remove Sheprd, run:
+To completely remove Fold, run:
 ```bash
 ./uninstall.sh
 ```
@@ -57,10 +61,10 @@ To completely remove Sheprd, run:
 
 ### 1. Download a Curated Starter Model
 
-Sheprd includes a built-in streaming model downloader that automatically verifies GGUF headers:
+Fold includes a built-in streaming model downloader that automatically verifies GGUF headers:
 
 ```bash
-sheprd download qwen2.5-0.5b
+fold download qwen2.5-0.5b
 ```
 
 Available curated starter models:
@@ -75,17 +79,17 @@ Available curated starter models:
 
 ### 2. Inspect Any GGUF Model
 
-Sheprd reads binary headers in milliseconds to determine layer count, context length, architecture, and optimal GPU offload:
+Fold reads binary headers in milliseconds to determine layer count, context length, architecture, and optimal GPU offload:
 
 ```bash
-sheprd inspect ~/.local/share/sheprd/models/qwen2.5-0.5b-instruct-q4_k_m.gguf
+fold inspect ~/.local/share/fold/models/qwen2.5-0.5b-instruct-q4_k_m.gguf
 ```
 
-### 3. Launch the Web UI
+### 3. Launch the Fold Web UI
 
 ```bash
-sheprd web
-# Or: sheprd ui
+fold web
+# Or: fold ui
 ```
 Navigate to: **`http://127.0.0.1:8765`**
 
@@ -98,7 +102,7 @@ sage
 ```
 Or trigger automatic tab creation from the CLI or Web UI:
 ```bash
-sheprd spawn sage
+fold spawn sage
 ```
 
 ---
@@ -122,16 +126,16 @@ sheprd spawn sage
 ### 4. Telegram Bot Support
 - Connect any agent directly to a Telegram bot by providing your bot token in the Web UI or CLI.
 - Asynchronous polling worker dispatches incoming messages with system persona prompts and returns formatted markdown.
-- Token scrubbing and chat allowlists (`SHEPRD_TELEGRAM_ALLOWED_USERS`) ensure secure remote interaction.
+- Token scrubbing and chat allowlists (`FOLD_TELEGRAM_ALLOWED_USERS`) ensure secure remote interaction.
 
 ### 5. Multi-Agent Swarms & Callable Permissions
 - **`callable_by_agents` (True/False)**: Enforces boundary controls. Private agents cannot be summoned by peer agents.
 - **Group Swarms**: Tag agents into groups (`dev`, `research`, `triage`). Send broadcast prompts to execute tasks across all agents in the group.
 - **Peer Delegation**: Call `@agent_name` inside interactive chat to route sub-prompts directly to specialized agents.
-- **Agent-Hub Synchronization**: Automatically syncs agent metadata with `~/.agent-hub/data/memory.db` for multi-tool discovery.
+- **Agent-Hub Synchronization**: Automatically syncs agent metadata with `~/.agent-hub/data/memory.db` under the `fold` namespace for multi-tool discovery.
 
 ### 6. Tools & Skills Ecosystem (Core + MCP Hub)
-Sheprd equips your local agents with live autonomous tool execution using standard OpenAI function calling format supported natively by `llama-server`:
+Fold equips your local agents with live autonomous tool execution using standard OpenAI function calling format supported natively by `llama-server`:
 
 - **⚡ Built-in Core Tools (Zero-Setup & Zero-Dependency)**:
   - 🌦️ **`get_weather`**: Real-time live weather conditions, temperature, humidity, and wind via `wttr.in`.
@@ -140,24 +144,24 @@ Sheprd equips your local agents with live autonomous tool execution using standa
   - 🧮 **`calculate`**: Safe AST-based mathematical expression evaluator (arithmetic, trigonometry, logarithms, roots).
   - ⏱️ **`get_current_time`**: Live UTC time, system local timezone, and UNIX timestamps.
 - **🔌 Model Context Protocol (MCP) Client & 1-Click Smithery Hub**:
-  - **1-Click Smithery & Registry Install**: Paste any Smithery tool URL (e.g. `https://smithery.ai/server/@smithery-ai/fetch`), package identifier (`@smithery-ai/...`), or terminal command. Sheprd automatically parses, installs, and connects it.
+  - **1-Click Smithery & Registry Install**: Paste any Smithery tool URL (e.g. `https://smithery.ai/server/@smithery-ai/fetch`), package identifier (`@smithery-ai/...`), or terminal command. Fold automatically parses, installs, and connects it.
   - **Zero-Config Popular App Store**: 1-click zero-setup additions directly from the Web UI for **Web Page Fetcher** (`uvx mcp-server-fetch`), **SQLite Database Inspector** (`uvx mcp-server-sqlite`), **Memory Graph** (`npx -y @modelcontextprotocol/server-memory`), **Git Inspector** (`uvx mcp-server-git`), **Local Filesystem**, and **Brave Search**.
-  - **Seamless Bi-directional Claude & Cursor Sync**: Any tool installed via Smithery Web (*"Install with Claude"*) or `smithery install --client claude` automatically synchronizes into Sheprd in real time!
+  - **Seamless Bi-directional Claude & Cursor Sync**: Any tool installed via Smithery Web (*"Install with Claude"*) or `smithery install --client claude` automatically synchronizes into Fold in real time!
   - **Live Smithery Search**: Query over 100K+ Smithery MCP tools directly from the Web UI or CLI.
   - Available across Web Chat, Herdr interactive terminal, and Telegram bots.
   - Automatic tool selection, iterative execution loops, and error recovery.
 
 ### 7. Dynamic LRU Model Hot-Swapping
-Running multiple local LLM servers simultaneously quickly exhausts GPU VRAM and system memory. Sheprd includes an intelligent Least-Recently-Used (LRU) model hot-swapping engine:
-- **Zero-Friction Activation**: When an agent is called (via Web Chat, Herdr terminal `sheprd spawn`, `@mention`, or Telegram), Sheprd ensures its server is active.
-- **Configurable VRAM Ceiling (`SHEPRD_MAX_ACTIVE_MODELS`)**: By default, Sheprd keeps `1` active model loaded in VRAM (perfect for single-GPU or shared systems). When a new agent is invoked, the least-recently-used server is automatically stopped and evicted before the new model loads.
-- **Multi-GPU Scalability**: Set `export SHEPRD_MAX_ACTIVE_MODELS=3` (or any integer) to support multiple concurrent active models on larger rigs.
+Running multiple local LLM servers simultaneously quickly exhausts GPU VRAM and system memory. Fold includes an intelligent Least-Recently-Used (LRU) model hot-swapping engine:
+- **Zero-Friction Activation**: When an agent is called (via Web Chat, Herdr terminal `fold spawn`, `@mention`, or Telegram), Fold ensures its server is active.
+- **Configurable VRAM Ceiling (`FOLD_MAX_ACTIVE_MODELS`)**: By default, Fold keeps `1` active model loaded in VRAM (perfect for single-GPU or shared systems). When a new agent is invoked, the least-recently-used server is automatically stopped and evicted before the new model loads.
+- **Multi-GPU Scalability**: Set `export FOLD_MAX_ACTIVE_MODELS=3` (or any integer) to support multiple concurrent active models on larger rigs.
 
 ---
 
 ## 🔒 Hardened Security Model
 
-Sheprd implements defense-in-depth across all system boundaries:
+Fold implements defense-in-depth across all system boundaries:
 
 | Control | Implementation |
 |---|---|
@@ -166,7 +170,7 @@ Sheprd implements defense-in-depth across all system boundaries:
 | **AST Exponent Bomb Guard** | Math evaluator rejects malicious nesting and caps exponents (`abs(exp) <= 100`, `abs(base) <= 10000`), neutralizing algorithmic complexity attacks like `9**9**9`. |
 | **GGUF Binary Validation** | Verifies `b'GGUF'` magic bytes before launching any binary process. |
 | **Subprocess Isolation** | Executes `llama-server` strictly via `list[str]` arguments (no `shell=True`, no bash string interpolation). |
-| **CSRF & API Token Defense** | Enforces Origin validation and unconditional `X-Sheprd-Token` checking for state-changing HTTP endpoints. API token persisted to `~/.local/share/sheprd/api_token` with `0600` permissions. |
+| **CSRF & API Token Defense** | Enforces Origin validation and unconditional `X-Fold-Token` (and `X-Sheprd-Token`) checking for state-changing HTTP endpoints. API token persisted to `~/.local/share/fold/api_token` with `0600` permissions. |
 | **PID Verification Guard** | Inspects `/proc/{pid}/cmdline` before sending termination signals to verify the target process is actually `llama-server`. |
 | **Strict File Permissions** | SQLite database and WAL files are maintained at `0600` (user read/write only). |
 | **Token Scrubbing** | Telegram tokens and MCP environment secrets are masked in API responses (`••••`) and scrubbed from all server logs. |
@@ -178,7 +182,7 @@ Sheprd implements defense-in-depth across all system boundaries:
 
 ```
                                   ┌───────────────────────────────┐
-                                  │   Sheprd Web UI (aiohttp)     │
+                                  │   Fold Web UI (aiohttp)       │
                                   │   http://127.0.0.1:8765       │
                                   └───────────────┬───────────────┘
                                                   │
@@ -212,27 +216,29 @@ Sheprd implements defense-in-depth across all system boundaries:
 
 | Command | Description |
 |---|---|
-| `sheprd web [--port 8765]` | Launch the Digital Green Web UI & background services |
-| `sheprd list` | List all configured agents, ports, and statuses |
-| `sheprd inspect <path>` | Auto-inspect GGUF file and display hardware recommendations |
-| `sheprd download [model_key]` | Download starter models with progress indicator |
-| `sheprd start <name>` | Start the llama-server and Telegram bot for an agent |
-| `sheprd activate <name>` | Hot-swap/load agent model into memory (LRU eviction if at limit) |
-| `sheprd stop <name>` | Stop an agent's server process |
-| `sheprd stop-all` | Stop all active agent servers |
-| `sheprd spawn <name>` | Spawn agent in an active Herdr terminal tab |
-| `sheprd chat <name>` | Launch interactive Digital Green terminal chat with live tool execution |
-| `sheprd tools` | Display the system-wide catalog of Core and MCP tools |
-| `sheprd mcp list` | List registered external MCP servers |
-| `sheprd mcp install <target>` | 1-click install from Smithery URL, package identifier, or command |
-| `sheprd mcp sync` | Synchronize MCP servers from Claude Desktop and Cursor configs |
-| `sheprd mcp search <query>` | Search the Smithery 100K+ tool registry |
-| `sheprd mcp add <name> <cmd> [args...]` | Register and connect a new stdio MCP server manually |
-| `sheprd mcp remove <name>` | Disconnect and remove an MCP server |
-| `sheprd telegram status` | Check connectivity status of all configured Telegram bots |
-| `sheprd telegram run` | Run foreground standalone Telegram bot worker |
-| `sheprd logs <name>` | View recent server logs |
-| `sheprd remove <name>` | Delete an agent and uninstall its Herdr launcher |
+| `fold web [--port 8765]` | Launch the Fold Pastel Web UI & background services |
+| `fold list` | List all configured agents, ports, and statuses |
+| `fold inspect <path>` | Auto-inspect GGUF file and display hardware recommendations |
+| `fold download [model_key]` | Download starter models with progress indicator |
+| `fold start <name>` | Start the llama-server and Telegram bot for an agent |
+| `fold activate <name>` | Hot-swap/load agent model into memory (LRU eviction if at limit) |
+| `fold stop <name>` | Stop an agent's server process |
+| `fold stop-all` | Stop all active agent servers |
+| `fold spawn <name>` | Spawn agent in an active Herdr terminal tab |
+| `fold chat <name>` | Launch interactive terminal chat with live tool execution |
+| `fold tools` | Display the system-wide catalog of Core and MCP tools |
+| `fold mcp list` | List registered external MCP servers |
+| `fold mcp install <target>` | 1-click install from Smithery URL, package identifier, or command |
+| `fold mcp sync` | Synchronize MCP servers from Claude Desktop and Cursor configs |
+| `fold mcp search <query>` | Search the Smithery 100K+ tool registry |
+| `fold mcp add <name> <cmd> [args...]` | Register and connect a new stdio MCP server manually |
+| `fold mcp remove <name>` | Disconnect and remove an MCP server |
+| `fold telegram status` | Check connectivity status of all configured Telegram bots |
+| `fold telegram run` | Run foreground standalone Telegram bot worker |
+| `fold logs <name>` | View recent server logs |
+| `fold remove <name>` | Delete an agent and uninstall its Herdr launcher |
+
+*(Note: The `sheprd` CLI command is maintained as a transparent backward-compatible alias for all `fold` commands).*
 
 ---
 
@@ -240,18 +246,18 @@ Sheprd implements defense-in-depth across all system boundaries:
 
 | Variable | Default | Description |
 |---|---|---|
-| `SHEPRD_MAX_ACTIVE_MODELS` | `1` | Maximum concurrent `llama-server` instances kept loaded in RAM/VRAM. When exceeded, the least recently used model is automatically stopped. Increase this on multi-GPU setups. |
-| `SHEPRD_TELEGRAM_ALLOWED_USERS` | *(none / open)* | Comma-separated list of allowed Telegram usernames or user IDs (e.g. `user1,12345678`). Restricts remote bot access. |
-| `SHEPRD_HOME` | `~/.local/share/sheprd` | Root directory for Sheprd databases, logs, binaries, and lockfiles. |
+| `FOLD_MAX_ACTIVE_MODELS` | `1` | Maximum concurrent `llama-server` instances kept loaded in RAM/VRAM. When exceeded, the least recently used model is automatically stopped. Increase this on multi-GPU setups. *(Legacy fallback: `SHEPRD_MAX_ACTIVE_MODELS`)* |
+| `FOLD_TELEGRAM_ALLOWED_USERS` | *(none / open)* | Comma-separated list of allowed Telegram usernames or user IDs (e.g. `user1,12345678`). Restricts remote bot access. *(Legacy fallback: `SHEPRD_TELEGRAM_ALLOWED_USERS`)* |
+| `FOLD_HOME` | `~/.local/share/fold` | Root directory for Fold databases, logs, binaries, and lockfiles. |
 
 ---
 
 ## 🧪 Testing
 
-Sheprd includes a comprehensive unit test suite covering security guards, GGUF binary extraction, database persistence, group validation, and multi-agent loops:
+Fold includes a comprehensive unit test suite covering security guards, GGUF binary extraction, database persistence, group validation, and multi-agent loops:
 
 ```bash
-python3 -m unittest tests/test_sheprd.py -v
+python3 -m unittest discover -s tests -p "test_*.py" -v
 ```
 
 ---
