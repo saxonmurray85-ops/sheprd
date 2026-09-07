@@ -25,6 +25,7 @@ from ..mcp_smithery import (
     sync_external_client_configs,
 )
 from ..multi_agent import MultiAgentRouter
+from ..prompts import build_agent_system_prompt
 from ..security import (
     SecurityError,
     get_or_create_api_token,

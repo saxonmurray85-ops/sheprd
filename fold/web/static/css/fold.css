@@ -364,6 +364,12 @@ main {
   border: 1px solid var(--border-green);
 }
 
+.status-badge.starting {
+  background: rgba(253, 230, 138, 0.28);
+  color: var(--accent-amber-ink);
+  border: 1px solid var(--accent-amber);
+}
+
 .status-badge.error {
   background: rgba(252, 165, 165, 0.25);
   color: var(--accent-red-ink);

@@ -233,19 +233,10 @@ class ServerManager:
                 "--jinja",
             ]
 
-            # Template flag detection (Gemma, Llama-3, ChatML, Mistral)
-            arch_lower = (agent.model_architecture or "").lower()
-            path_lower = str(model_target).lower()
-            if "gemma" in arch_lower or "gemma" in path_lower:
-                cmd.extend(["--chat-template", "gemma"])
-            elif "llama-3" in arch_lower or "llama3" in path_lower:
-                cmd.extend(["--chat-template", "llama-3"])
-            elif "chatml" in arch_lower or "qwen" in path_lower or "qwen" in arch_lower:
-                cmd.extend(["--chat-template", "chatml"])
-            elif "mistral" in arch_lower or "devstral" in path_lower:
-                cmd.extend(["--chat-template", "mistral"])
-            else:
-                cmd.extend(["--chat-template", "auto"])
+            # Chat templating: modern llama.cpp uses each model's embedded
+            # tokenizer.chat_template via minja. Do NOT pass --chat-template:
+            # named templates ("gemma", "chatml", ...) are no longer resolved
+            # and the literal string becomes the template, corrupting prompts.
 
             if agent.n_gpu_layers > 0:
                 cmd.extend(["-ngl", str(agent.n_gpu_layers)])

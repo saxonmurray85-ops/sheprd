@@ -246,9 +246,9 @@ function renderAgents(agents) {
   ];
 
   container.innerHTML = agents.map(agent => {
-    const isRunning = agent.status === "running";
-    const statusClass = isRunning ? "running" : (agent.status === "error" ? "error" : "stopped");
-    const statusText = isRunning ? `ONLINE (:${agent.port})` : agent.status.toUpperCase();
+    const isStarting = agent.status === "starting";
+    const statusClass = isRunning ? "running" : (isStarting ? "starting" : (agent.status === "error" ? "error" : "stopped"));
+    const statusText = isRunning ? `ONLINE (:${agent.port})` : (isStarting ? "STARTING (LOADING TENSORS...)" : agent.status.toUpperCase());
     const modelBase = agent.model_path.split("/").pop();
 
     const hueIdx = Math.abs(agent.name.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0)) % sheepImages.length;
@@ -288,7 +288,9 @@ function renderAgents(agents) {
         <div class="agent-card-actions">
           ${isRunning 
             ? `<button class="btn btn-danger" onclick="stopAgent('${agent.name}')">⏹ Stop</button>`
-            : `<button class="btn btn-primary" onclick="startAgent('${agent.name}')">▶ Start</button>`
+            : (isStarting
+              ? `<button class="btn btn-secondary" disabled title="Model weights and tensors are loading into memory/GPU">⏳ Starting...</button>`
+              : `<button class="btn btn-primary" onclick="startAgent('${agent.name}')">▶ Start</button>`)
           }
           <button class="btn btn-herdr" onclick="spawnInHerdr('${agent.name}')" title="Spawn interactive terminal session in Herdr">
             ⚡ Spawn in Herdr
