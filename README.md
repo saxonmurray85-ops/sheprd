@@ -24,21 +24,6 @@
 ### Herdr Terminal Chat & Pure-Python Model Inspection
 ![Fold Terminal Chat](docs/assets/fold_terminal.png)
 
----
-
-## 🎨 Aesthetics & Branding: Origami Sheep & Pastel Palette
-
-Fold introduces an elegant, modern visual identity inspired by origami papercraft and a soft pastel aesthetic:
-- **Origami Paper Sheep**: Distinct faceted geometric origami sheep avatars for your agent fleet, status badges, and header branding.
-- **Pastel Color System**: Carefully calibrated tones of **Sky Blue** (`#7eb8da`), **Sage Green** (`#88b79b`), and **Slate Grey** (`#cbd5e1` / `#e2e8f0`) on a light, airy paper canvas with crisp cards and origami papercraft accents.
-- **Clean Responsive Layout**: Identical workflow placement with rounded modern cards, subtle ambient glows, and clean typography.
-
-<p align="center">
-  <img src="docs/assets/sheep_sage.png" width="115" alt="Sage Green Origami Sheep" />
-  <img src="docs/assets/sheep_blue.png" width="115" alt="Sky Blue Origami Sheep" />
-  <img src="docs/assets/sheep_cream.png" width="115" alt="Cream Origami Sheep" />
-  <img src="docs/assets/sheep_pink.png" width="115" alt="Pastel Pink Origami Sheep" />
-</p>
 
 ---
 
